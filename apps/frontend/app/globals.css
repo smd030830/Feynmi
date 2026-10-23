@@ -1,26 +1,89 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* 디자인 토큰: docs/design-system.md 1~5장, 10장 */
+@theme {
+  --font-sans: var(--font-noto-sans-kr), sans-serif;
+  --font-brand: var(--font-plus-jakarta), sans-serif;
+
+  --color-primary: #6366f1;
+  --color-primary-strong: #4f46e5;
+  --color-primary-soft: #eef2ff;
+  --color-primary-line: #c7d2fe;
+  --color-heading-accent: #5b5bd6;
+  --color-text: #1e293b;
+  --color-muted: #475569;
+  --color-subtle: #64748b;
+  --color-placeholder: #94a3b8;
+  --color-line: #e2e8f0;
+  --color-canvas: #f8fafc;
+  --color-surface: #ffffff;
+
+  --color-success: #15803d;
+  --color-success-icon: #22c55e;
+  --color-success-soft: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-icon: #f59e0b;
+  --color-warning-soft: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-icon: #ef4444;
+  --color-danger-soft: #fef2f2;
+
+  --text-display: 40px;
+  --text-display--line-height: 1.4;
+  --text-display--letter-spacing: -1.5px;
+  --text-title-1: 30px;
+  --text-title-1--line-height: 1.4;
+  --text-title-1--letter-spacing: -0.8px;
+  --text-title-2: 24px;
+  --text-title-2--line-height: 1.45;
+  --text-title-2--letter-spacing: -0.6px;
+  --text-title-3: 20px;
+  --text-title-3--line-height: 1.45;
+  --text-title-3--letter-spacing: -0.3px;
+  --text-heading: 18px;
+  --text-heading--line-height: 1.4;
+  --text-subheading: 16px;
+  --text-subheading--line-height: 1.45;
+  --text-body-lg: 15px;
+  --text-body-lg--line-height: 1.75;
+  --text-body: 14px;
+  --text-body--line-height: 1.65;
+  --text-caption: 13px;
+  --text-caption--line-height: 1.55;
+  --text-micro: 12px;
+  --text-micro--line-height: 1.5;
+  --text-eyebrow: 12px;
+  --text-eyebrow--line-height: 1.4;
+  --text-eyebrow--letter-spacing: 1.6px;
+  --text-button: 15px;
+  --text-button--line-height: 1;
+
+  --radius-control: 12px;
+  --radius-card: 16px;
+  --radius-hero: 22px;
+
+  --shadow-brand: 0 8px 30px rgba(99, 102, 241, 0.08);
+  --shadow-brand-sm: 0 8px 20px rgba(99, 102, 241, 0.1);
+  --shadow-button-primary: 0 8px 20px rgba(99, 102, 241, 0.22);
+  --shadow-button-primary-hover: 0 11px 25px rgba(99, 102, 241, 0.28);
+  --shadow-popover: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --shadow-modal: 0 22px 60px rgba(15, 23, 42, 0.08);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* PC 전용, 기준 폭 1180px 이상 (PRD 7장) */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-width: 1180px;
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.65;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 키보드 포커스 (design-system 6장) */
+:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
