@@ -1,17 +1,31 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
+import { SESSION_COOKIE } from "@/lib/session";
+
+// 임시 로그인(FM-010 Firebase 연동 전까지). 계정 정보가 클라이언트 번들에 노출되므로 연동 시 제거한다.
+const TEMP_EMAIL = "admin@feynmi.com";
+const TEMP_PASSWORD = "1234";
 
 export function LoginForm() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     // 기본 제출을 막아 입력값이 URL로 새지 않게 한다. Firebase 연동 때 로그인 호출로 교체.
     event.preventDefault();
+    if (email === TEMP_EMAIL && password === TEMP_PASSWORD) {
+      document.cookie = `${SESSION_COOKIE}=temp-admin; path=/; samesite=lax`;
+      router.replace("/");
+    } else {
+      setError("이메일 또는 비밀번호가 올바르지 않습니다.");
+    }
   }
 
   return (
@@ -38,6 +52,12 @@ export function LoginForm() {
         onChange={(event) => setPassword(event.target.value)}
         required
       />
+
+      {error && (
+        <p role="alert" className="text-caption text-red-600">
+          {error}
+        </p>
+      )}
 
       <Button type="submit" className="mt-2 h-12 w-full" disabled={!email || !password}>
         로그인
