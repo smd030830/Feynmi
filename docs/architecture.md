@@ -577,18 +577,21 @@ erDiagram
 | Vercel | `apps/frontend`를 루트로 배포. 프리뷰 배포 도메인은 Firebase 승인 도메인과 `CORS_ORIGINS`에 등록 |
 | Cloud Run `feynmi-api` | `apps/backend/Dockerfile`. Cloud SQL 커넥터로 접속. 요청 타임아웃은 분석 작업 데드라인 이상으로 설정(초기 30분). 서비스 계정 권한: Cloud SQL Client, 버킷 객체 읽기/쓰기, Cloud Tasks Enqueuer, 자기 자신에 대한 Token Creator(Signed URL 서명용), Secret Accessor |
 | Cloud Tasks `analysis` | 디스패치 데드라인 30분(HTTP 대상 상한), 최대 시도 3회. 인프라 장애에 대한 재전달용 |
-| Cloud SQL | PostgreSQL + `vector` 확장. 마이그레이션은 배포 전에 `alembic upgrade head`로 실행 |
+| Cloud SQL | PostgreSQL 18 + `vector` 확장. 마이그레이션은 배포 전에 `alembic upgrade head`로 실행 |
 | GCS | 균일 버킷 수준 액세스, 공개 액세스 방지, 프론트 오리진 PUT용 CORS. 원본과 프로필 이미지를 같은 버킷의 `users/{user_id}/` 아래에 둔다 |
 | Firebase | 이메일/비밀번호(이메일 인증 템플릿 한국어), 구글 공급자, 승인 도메인 |
 
 ### 11.2 로컬 개발 (FM-002)
-- `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(pgvector 이미지).
+- `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(`pgvector/pgvector:pg18-trixie` 이미지). `backend`는 기동할 때 `alembic upgrade head`를 먼저 실행한다.
+- `apps/backend/Dockerfile`은 `dev`(compose, 소스 마운트)와 `prod`(Cloud Run, 기본 타깃) 두 타깃이다. 마이그레이션은 `prod` 이미지로도 실행한다(11.1).
+- 백엔드 테스트는 별도 DB(`feynmi_test`)를 쓴다. 테스트가 스키마를 지우므로 DB 이름이 `_test`로 끝나야 한다.
 - GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. 개발자는 ADC(`gcloud auth application-default login`)나 개발용 서비스 계정 키(커밋 금지)로 인증한다.
 - `QUEUE_MODE=inline`이면 큐 등록 대신 같은 프로세스에서 분석 함수를 백그라운드 태스크로 실행한다. 워커 로직은 운영과 같고 전달 경로만 다르다.
 
 ### 11.3 CI (FM-003)
 - 프론트엔드: `pnpm lint`, `pnpm build`, 타입 검사.
-- 백엔드: `ruff`, `pyright`(타입 검사), `pytest`. 테스트는 DB가 필요한 경우 pgvector 서비스 컨테이너를 쓴다. LLM은 `FakeProvider`로 대체하고 실제 API는 호출하지 않는다.
+- 백엔드: `ruff`, `pyright`(타입 검사), `pytest`. DB 테스트는 pgvector 서비스 컨테이너(PostgreSQL 18)를 쓴다. 마이그레이션 `upgrade → downgrade → upgrade`와 모델-마이그레이션 일치 여부도 여기서 검증한다. LLM은 `FakeProvider`로 대체하고 실제 API는 호출하지 않는다.
+- Docker: `docker compose config`, `dev`·`prod` 이미지 빌드, `prod` 이미지가 기동해 `/health`에 응답하는지 확인한다.
 - `packages/api-types` 생성 결과의 최신 여부 확인 (8.3).
 
 ---
