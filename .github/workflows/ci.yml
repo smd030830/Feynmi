@@ -32,6 +32,23 @@ jobs:
     defaults:
       run:
         working-directory: apps/backend
+    services:
+      # 로컬(compose.yaml), 운영(Cloud SQL)과 같은 PostgreSQL 메이저 버전 (prd.md 9.1)
+      postgres:
+        image: pgvector/pgvector:pg18-trixie
+        env:
+          POSTGRES_USER: feynmi
+          POSTGRES_PASSWORD: feynmi
+          POSTGRES_DB: feynmi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U feynmi -d feynmi_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://feynmi:feynmi@localhost:5432/feynmi_test
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5

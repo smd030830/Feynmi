@@ -9,11 +9,12 @@ from backend.errors import AppError
 from backend.main import API_PREFIX, create_app
 
 ORIGIN = "http://localhost:3000"
+UNUSED_DATABASE_URL = "postgresql+asyncpg://user:pw@localhost/unused"  # 앱 생성은 접속하지 않는다
 
 
 @pytest.fixture
 def app() -> FastAPI:
-    app = create_app(Settings(cors_origins=[ORIGIN]))
+    app = create_app(Settings(database_url=UNUSED_DATABASE_URL, cors_origins=[ORIGIN]))
 
     @app.get(f"{API_PREFIX}/_test/app-error")
     async def app_error() -> None:
@@ -75,4 +76,5 @@ def test_cors_origins_from_comma_separated_env(
 ) -> None:
     monkeypatch.chdir(tmp_path)  # 로컬 .env를 읽지 않게 한다
     monkeypatch.setenv("CORS_ORIGINS", f"{ORIGIN}, https://feynmi.vercel.app")
-    assert Settings().cors_origins == [ORIGIN, "https://feynmi.vercel.app"]
+    settings = Settings()  # pyright: ignore[reportCallIssue]
+    assert settings.cors_origins == [ORIGIN, "https://feynmi.vercel.app"]

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # asyncpg 접속 문자열 (postgresql+asyncpg://user:password@host:5432/db). 기본값은 두지 않는다.
+    database_url: str
     cors_origins: Annotated[list[str], NoDecode] = []
 
     @field_validator("cors_origins", mode="before")
@@ -23,4 +25,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # database_url 등은 환경변수에서 읽으므로 생성자 인자가 없다. 타입 검사기는 이를 모른다.
+    return Settings()  # pyright: ignore[reportCallIssue]
