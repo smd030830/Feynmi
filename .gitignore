@@ -217,3 +217,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local IDE settings and agent runtime state
+.idea/
+*.iml
+.omx/
+
+# JavaScript dependencies and generated output
+node_modules/
+.next/
+.pnpm-store/
+*.tsbuildinfo
+
+# Local environment files (keep shareable examples)
+.env.*
+!.env.example
+!.env.*.example
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
