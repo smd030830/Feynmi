@@ -588,7 +588,7 @@ erDiagram
 
 ### 11.3 CI (FM-003)
 - 프론트엔드: `pnpm lint`, `pnpm build`, 타입 검사.
-- 백엔드: `ruff`, 타입 검사, `pytest`. 테스트는 DB가 필요한 경우 pgvector 서비스 컨테이너를 쓴다. LLM은 `FakeProvider`로 대체하고 실제 API는 호출하지 않는다.
+- 백엔드: `ruff`, `pyright`(타입 검사), `pytest`. 테스트는 DB가 필요한 경우 pgvector 서비스 컨테이너를 쓴다. LLM은 `FakeProvider`로 대체하고 실제 API는 호출하지 않는다.
 - `packages/api-types` 생성 결과의 최신 여부 확인 (8.3).
 
 ---
