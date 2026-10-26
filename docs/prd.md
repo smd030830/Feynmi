@@ -326,6 +326,7 @@ LLM이 "이해했는가"를 통째로 판정하지 않는다. **LLM은 요소별
 | API 타입 공유 | OpenAPI → TypeScript 타입 생성 (`packages/api-types`) | |
 | 로컬 개발 | Docker Compose | 프론트, 백엔드, PostgreSQL(+pgvector) 일괄 실행. GCS와 Firebase는 개발용 버킷/프로젝트 사용 |
 | 형상 관리 / CI | Git, GitHub Actions | PR마다 린트와 빌드 |
+| 백엔드 린트/타입 검사/테스트 | ruff, pyright (standard 모드), pytest | CI에서 실행 |
 | 배포 | 프론트: Vercel / 백엔드: Cloud Run (Docker) / DB: Cloud SQL for PostgreSQL (pgvector) | Firebase와 같은 GCP 프로젝트에서 관리 |
 
 ### 9.2 AI 모델과 파라미터
