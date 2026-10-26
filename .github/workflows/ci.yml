@@ -57,3 +57,23 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run pytest
+
+  # Dockerfile과 compose.yaml이 깨지지 않았는지 확인한다.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose config --quiet
+      - run: docker build --target dev apps/backend
+      - run: docker build --target prod -t feynmi-api apps/backend
+      # 운영 이미지가 기동하고 /health에 응답하는지 확인한다 (DB 접속 없이 뜬다).
+      - name: Smoke test prod image
+        run: |
+          docker run -d --name api -p 8080:8080 \
+            -e DATABASE_URL=postgresql+asyncpg://u:p@localhost/unused feynmi-api
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8080/health && exit 0
+            sleep 1
+          done
+          docker logs api
+          exit 1
