@@ -42,3 +42,4 @@ v0.5(2026-10-22)에서 미확정 사항과 문서 간 충돌을 모두 확정했
 | (v0.6) RAG/재시도 수치, 개념 추출 입력, 평가 응답 방식, API 호출 구조 | 9.4 |
 | (v0.6) ORM, PDF 파서, API 타입 공유, 로컬 GCS/Firebase | 9.1 |
 | (2026-10-26) 백엔드 타입 검사 | pyright (standard 모드). CI에서 ruff, pytest와 함께 실행 (9.1) |
+| (2026-10-26) PostgreSQL 버전 | 18. Cloud SQL 기본 버전이며 pgvector 지원. 로컬·CI는 `pgvector/pgvector:pg18-trixie` (9.1) |
