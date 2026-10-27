@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Button, OutlineButtonContent } from "@/components/button";
-import { GoogleIcon, Icon, type IconName } from "@/components/icon";
+import { GuestOnly } from "@/components/auth-guard";
+import { buttonStyles, OutlineButtonContent } from "@/components/button";
+import { Icon, type IconName } from "@/components/icon";
 import { Logo } from "@/components/logo";
-import { LoginForm } from "./login-form";
+import { GoogleLoginButton } from "./google-login-button";
 
 export const metadata: Metadata = { title: "로그인 · Feynmi" };
 
@@ -17,49 +18,48 @@ const flow: { icon: IconName; label: string; tone: string }[] = [
 
 export default function LoginPage() {
   return (
-    <main className="grid min-h-screen grid-cols-[56fr_44fr]">
-      <BrandPanel />
-      <section className="flex items-center justify-center bg-surface px-10 py-16">
-        <div className="w-full max-w-[390px]">
-          <h2 className="text-title-1 font-bold text-text">
-            Feynmi에 오신 것을
-            <br />
-            환영합니다.
-          </h2>
-
-          <div className="mt-10 flex flex-col gap-3">
-            <Button variant="outline">
-              <OutlineButtonContent
-                tile={<GoogleIcon />}
-                tileClassName="bg-[#f1f5ff]"
-              >
-                Google로 계속하기
-              </OutlineButtonContent>
-            </Button>
-
-            <div className="flex items-center gap-3 py-1 text-caption text-subtle">
-              <span className="h-px flex-1 bg-line" />
-              또는
-              <span className="h-px flex-1 bg-line" />
+    <GuestOnly>
+      <main className="grid min-h-screen grid-cols-[56fr_44fr]">
+        <BrandPanel />
+        <section className="flex items-center justify-center bg-surface px-10 py-16">
+          <div className="w-full max-w-[390px]">
+            <h2 className="text-title-1 font-bold text-text">
+              Feynmi에 오신 것을
+              <br />
+              환영합니다.
+            </h2>
+  
+            <div className="mt-10 flex flex-col gap-3">
+              <GoogleLoginButton />
+  
+              <div className="flex items-center gap-3 py-1 text-caption text-subtle">
+                <span className="h-px flex-1 bg-line" />
+                또는
+                <span className="h-px flex-1 bg-line" />
+              </div>
+  
+              <Link href="/login/email" className={buttonStyles("outline")}>
+                <OutlineButtonContent tile={<Icon name="mail" size={14} />}>
+                  이메일로 계속하기
+                </OutlineButtonContent>
+              </Link>
             </div>
-
-            <LoginForm />
+  
+            <p className="mt-8 text-caption text-subtle">
+              계속하면{" "}
+              <Link href="/terms" className="font-semibold text-primary-strong underline-offset-2 hover:underline">
+                이용약관
+              </Link>
+              과{" "}
+              <Link href="/privacy" className="font-semibold text-primary-strong underline-offset-2 hover:underline">
+                개인정보 처리방침
+              </Link>
+              에 동의하는 것으로 봅니다.
+            </p>
           </div>
-
-          <p className="mt-8 text-caption text-subtle">
-            계속하면{" "}
-            <Link href="/terms" className="font-semibold text-primary-strong underline-offset-2 hover:underline">
-              이용약관
-            </Link>
-            과{" "}
-            <Link href="/privacy" className="font-semibold text-primary-strong underline-offset-2 hover:underline">
-              개인정보 처리방침
-            </Link>
-            에 동의하는 것으로 봅니다.
-          </p>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </GuestOnly>
   );
 }
 
