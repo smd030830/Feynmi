@@ -70,7 +70,8 @@ jobs:
       - name: Smoke test prod image
         run: |
           docker run -d --name api -p 8080:8080 \
-            -e DATABASE_URL=postgresql+asyncpg://u:p@localhost/unused feynmi-api
+            -e DATABASE_URL=postgresql+asyncpg://u:p@localhost/unused \
+            -e FIREBASE_PROJECT_ID=ci feynmi-api
           for i in $(seq 1 20); do
             curl -fsS http://localhost:8080/health && exit 0
             sleep 1

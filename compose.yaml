@@ -27,6 +27,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://feynmi:feynmi@db:5432/feynmi
       CORS_ORIGINS: http://localhost:3000
+      # 저장소 루트의 .env 또는 셸 환경변수에서 읽는다. 프론트엔드의 NEXT_PUBLIC_FIREBASE_PROJECT_ID와 같은 값
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
     ports:
       - "8000:8000"
     volumes:

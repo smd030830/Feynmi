@@ -14,7 +14,11 @@ UNUSED_DATABASE_URL = "postgresql+asyncpg://user:pw@localhost/unused"  # 앱 생
 
 @pytest.fixture
 def app() -> FastAPI:
-    app = create_app(Settings(database_url=UNUSED_DATABASE_URL, cors_origins=[ORIGIN]))
+    app = create_app(
+        Settings(
+            database_url=UNUSED_DATABASE_URL, firebase_project_id="test", cors_origins=[ORIGIN]
+        )
+    )
 
     @app.get(f"{API_PREFIX}/_test/app-error")
     async def app_error() -> None:
