@@ -12,7 +12,7 @@ FastAPI + SQLAlchemy 2 (async) + Alembic. 구조와 규칙은 [architecture.md](
 docker compose up -d db
 cd apps/backend
 uv sync
-cp .env.example .env
+cp ../../.env.example ../../.env   # 저장소 루트의 .env를 쓴다
 uv run alembic upgrade head
 uv run uvicorn backend.main:app --reload   # http://localhost:8000/docs
 ```
