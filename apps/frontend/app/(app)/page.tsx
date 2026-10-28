@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { CurrentNickname } from "@/components/auth-guard";
-import { buttonStyles } from "@/components/button";
 import { GreetingEyebrow, TodayLabel } from "@/components/greeting";
 import { Icon, type IconName } from "@/components/icon";
+import { NewProjectButton } from "@/components/new-project-modal";
 
 export const metadata: Metadata = { title: "홈 · Feynmi" };
 
@@ -49,10 +49,7 @@ export default function HomePage() {
             <br />
             이해한 만큼 보여요.
           </h2>
-          <button type="button" className={buttonStyles("primary", "mt-6")}>
-            <Icon name="plus" size={18} />
-            새 프로젝트 만들기
-          </button>
+          <NewProjectButton className="mt-6">새 프로젝트 만들기</NewProjectButton>
         </div>
         <ol className="relative mr-6 flex items-center gap-3" aria-label="학습 순환">
           {cycle.map((step, index) => (
@@ -120,10 +117,7 @@ export default function HomePage() {
         <p className="mt-1 text-caption text-subtle">
           PDF나 PPTX 자료를 올리면 핵심 개념을 뽑아 드려요.
         </p>
-        <button type="button" className={buttonStyles("primary", "mt-5")}>
-          <Icon name="plus" size={18} />
-          새 프로젝트
-        </button>
+        <NewProjectButton className="mt-5">새 프로젝트</NewProjectButton>
       </section>
     </div>
   );
