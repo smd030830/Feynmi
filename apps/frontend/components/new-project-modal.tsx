@@ -9,7 +9,7 @@ import { Modal } from "@/components/modal";
 import { ProjectTile } from "@/components/project-tile";
 import { apiErrorMessage, createProject, listProjects, type ProjectColor } from "@/lib/api";
 
-// 백엔드 api/projects.py의 길이 제한과 같게 둔다
+// PRD FR-1.0 (백엔드 api/projects.py와 같은 값)
 const NAME_MAX_LENGTH = 40;
 const DESCRIPTION_MAX_LENGTH = 200;
 
