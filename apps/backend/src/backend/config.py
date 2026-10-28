@@ -5,7 +5,6 @@ from typing import Annotated
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-
 # 저장소 루트의 .env. 컨테이너처럼 파일이 없으면 환경변수만 쓴다.
 _parents = Path(__file__).resolve().parents
 ROOT_ENV_FILE = _parents[4] / ".env" if len(_parents) > 4 else None
