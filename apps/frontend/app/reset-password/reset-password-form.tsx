@@ -36,7 +36,7 @@ export function ResetPasswordForm() {
           <strong className="font-semibold text-text">{email}</strong>로 가입된 계정이 있다면 재설정
           메일을 보냈어요. 메일의 링크에서 새 비밀번호를 정해주세요.
         </p>
-        <Link href="/login/email" className={buttonStyles("primary", "h-12 w-full")}>
+        <Link href="/login" className={buttonStyles("primary", "h-12 w-full")}>
           로그인으로 돌아가기
         </Link>
       </div>
@@ -69,7 +69,7 @@ export function ResetPasswordForm() {
       </Button>
 
       <Link
-        href="/login/email"
+        href="/login"
         className="self-center text-caption font-semibold text-primary-strong underline-offset-2 hover:underline"
       >
         로그인으로 돌아가기
