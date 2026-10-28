@@ -14,7 +14,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 ProfileUser = Annotated[CurrentUser, Depends(require_profile)]
 
-# PRD에 길이 기준이 없어 임시로 정한 값이다. 확정되면 PRD FR-1.0에 반영한다.
+# PRD FR-1.0
 NAME_MAX_LENGTH = 40
 DESCRIPTION_MAX_LENGTH = 200
 
