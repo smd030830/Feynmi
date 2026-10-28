@@ -11,7 +11,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from backend.api.deps import CurrentUser, require_profile, require_verified_email
-from backend.auth.firebase import VerifiedToken, _to_verified_token
+from backend.auth.firebase import VerifiedToken
 from backend.config import Settings
 from backend.db.models import User
 from backend.db.session import make_session_factory
@@ -201,35 +201,56 @@ async def test_missing_nickname_is_forbidden_until_set(
     assert (await client.get(f"{API_PREFIX}/_test/profile", headers=bearer("t"))).status_code == 200
 
 
-def claims(**overrides: object) -> dict:
-    base = {
-        "uid": "uid-1",
-        "email": "a@example.com",
-        "email_verified": True,
-        "auth_time": int(NOW.timestamp()),
-        "firebase": {"sign_in_provider": "google.com"},
-    }
-    return base | overrides
+async def test_update_profile_sets_nickname(
+    client: httpx.AsyncClient, engine: AsyncEngine, tokens: dict[str, VerifiedToken]
+) -> None:
+    tokens["t"] = make_token()
+    res = await client.patch(
+        f"{API_PREFIX}/me/profile", headers=bearer("t"), json={"nickname": "  학습자  "}
+    )
+    assert res.status_code == 200
+    assert res.json()["nickname"] == "학습자"
+    assert (await get_user(engine)).nickname == "학습자"
+    # 이미 있는 닉네임도 바꿀 수 있다 (설정).
+    res = await client.patch(
+        f"{API_PREFIX}/me/profile", headers=bearer("t"), json={"nickname": "b"}
+    )
+    assert res.json()["nickname"] == "b"
 
 
-def test_claims_are_converted() -> None:
-    token = _to_verified_token(claims())
-    assert token.uid == "uid-1"
-    assert token.sign_in_provider is SignInProvider.GOOGLE
-    assert token.email_verified is True
-    assert token.auth_time == datetime.fromtimestamp(int(NOW.timestamp()), UTC)
+@pytest.mark.parametrize("nickname", ["", "   ", "가" * 21, None, 3])
+async def test_update_profile_rejects_invalid_nickname(
+    client: httpx.AsyncClient,
+    engine: AsyncEngine,
+    tokens: dict[str, VerifiedToken],
+    nickname: object,
+) -> None:
+    tokens["t"] = make_token()
+    res = await client.patch(
+        f"{API_PREFIX}/me/profile", headers=bearer("t"), json={"nickname": nickname}
+    )
+    assert res.status_code == 400
+    assert res.json()["error"]["code"] == "validation_error"
 
 
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"email": None},
-        {"firebase": {"sign_in_provider": "anonymous"}},
-        {"firebase": {}},
-    ],
-)
-def test_unsupported_claims_are_unauthenticated(overrides: dict) -> None:
-    with pytest.raises(AppError) as exc:
-        _to_verified_token(claims(**overrides))
-    assert exc.value.status_code == 401
-    assert exc.value.code == "unauthenticated"
+async def test_update_profile_accepts_20_characters(
+    client: httpx.AsyncClient, tokens: dict[str, VerifiedToken]
+) -> None:
+    tokens["t"] = make_token()
+    res = await client.patch(
+        f"{API_PREFIX}/me/profile", headers=bearer("t"), json={"nickname": "가" * 20}
+    )
+    assert res.status_code == 200
+
+
+async def test_update_profile_requires_verified_email_and_token(
+    client: httpx.AsyncClient, engine: AsyncEngine, tokens: dict[str, VerifiedToken]
+) -> None:
+    body = {"nickname": "학습자"}
+    assert (await client.patch(f"{API_PREFIX}/me/profile", json=body)).status_code == 401
+
+    tokens["t"] = make_token(email_verified=False)
+    res = await client.patch(f"{API_PREFIX}/me/profile", headers=bearer("t"), json=body)
+    assert res.status_code == 403
+    assert res.json()["error"]["code"] == "email_not_verified"
+    assert (await get_user(engine)).nickname is None

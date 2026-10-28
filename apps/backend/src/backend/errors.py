@@ -10,6 +10,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +61,24 @@ async def _handle_http_exception(_: Request, exc: Exception) -> JSONResponse:
     return error_response(exc.status_code, code, str(exc.detail))
 
 
-async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled error", exc_info=exc)
-    return error_response(500, "internal_error", "Internal server error", retryable=True)
+class UnexpectedErrorMiddleware(BaseHTTPMiddleware):
+    """처리하지 못한 예외를 8.2 형식의 500으로 바꾼다.
+
+    `add_exception_handler(Exception, ...)`는 가장 바깥의 ServerErrorMiddleware가 처리해서
+    CORS 헤더가 붙지 않는다. 브라우저가 서버 오류를 CORS 오류로 오해하지 않도록, CORS 안쪽에서
+    먼저 잡는다. CORS보다 먼저(= 안쪽에) 등록해야 한다.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        try:
+            return await call_next(request)
+        except Exception as exc:
+            logger.exception("Unhandled error", exc_info=exc)
+            return error_response(500, "internal_error", "Internal server error", retryable=True)
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    app.add_middleware(UnexpectedErrorMiddleware)
     app.add_exception_handler(AppError, _handle_app_error)
     app.add_exception_handler(RequestValidationError, _handle_validation_error)
     app.add_exception_handler(StarletteHTTPException, _handle_http_exception)
-    app.add_exception_handler(Exception, _handle_unexpected)

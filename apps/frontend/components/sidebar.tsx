@@ -3,10 +3,9 @@
 import { signOut } from "firebase/auth";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCurrentUser } from "@/components/auth-guard";
+import { useMe } from "@/components/auth-guard";
 import { Icon, type IconName } from "@/components/icon";
 import { Logo } from "@/components/logo";
-import { temporaryNickname } from "@/lib/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
 
 // design-system 9.1 공통 레이아웃: 사이드바 236px
@@ -21,8 +20,8 @@ const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const user = useCurrentUser();
-  const nickname = temporaryNickname(user);
+  const me = useMe();
+  const nickname = me.nickname ?? "";
 
   function logout() {
     // 로그아웃되면 AuthGuard가 /login으로 보낸다
@@ -77,7 +76,7 @@ export function Sidebar() {
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-body font-semibold text-text">{nickname}</p>
-          <p className="truncate text-micro text-subtle">{user.email}</p>
+          <p className="truncate text-micro text-subtle">{me.email}</p>
         </div>
         <button
           type="button"

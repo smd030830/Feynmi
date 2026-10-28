@@ -9,10 +9,12 @@ requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.20.1",
     "asyncpg>=0.32.0",
+    "cryptography>=50.0.2",
     "fastapi>=0.162.0",
-    "firebase-admin>=7.7.0",
+    "google-auth>=2.40",
     "pgvector>=0.5.1",
     "pydantic-settings>=2.16.1",
+    "requests>=2.34.2",
     "sqlalchemy[asyncio]>=2.1.6",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -23,6 +25,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "httpx2>=2.16.0",
     "pyright>=1.1.414",
     "pytest>=9.1.1",

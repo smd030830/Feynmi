@@ -45,7 +45,7 @@ flowchart LR
   FE -- "로그인, ID 토큰 발급" --> FA
   FE -- "HTTPS + Bearer ID 토큰" --> API
   FE -- "Signed URL로 PUT (원본 업로드)" --> GCS
-  API -- "ID 토큰 검증 (Admin SDK)" --> FA
+  API -- "ID 토큰 검증 (공개 인증서)" --> FA
   API -- "Signed URL 발급, 원본 읽기" --> GCS
   API -- "작업 등록" --> Q
   Q -- "OIDC 인증 HTTP 호출<br/>/internal/tasks/analyze-material" --> API
@@ -181,7 +181,7 @@ api (라우터, 요청/응답 스키마, 인증 의존성)
 - `services`만 트랜잭션을 연다. LLM 호출 중에는 DB 트랜잭션이나 행 잠금을 잡고 있지 않는다 (7.2).
 
 ### 5.2 인증과 인가 (PRD FR-4.1, FR-4.2)
-1. `get_current_user`: `Authorization` 헤더의 ID 토큰을 Firebase Admin SDK `verify_id_token`으로 검증한다. 동기 함수이므로 스레드풀에서 실행한다. 토큰이 없거나 유효하지 않으면 `401 unauthenticated`를 반환한다.
+1. `get_current_user`: `Authorization` 헤더의 ID 토큰을 Firebase 공개 인증서(`auth/firebase.py`, Cache-Control 기간만큼 캐시)로 검증한다. 서명, 만료, `aud`(= `FIREBASE_PROJECT_ID`), `iss`를 확인하며 서비스 계정 자격 증명은 필요 없다. 동기 함수이므로 스레드풀에서 실행한다. 토큰 폐기·탈퇴처럼 Firebase 계정을 바꾸는 작업(FM-071, FM-073)만 Admin SDK와 자격 증명을 쓴다. 토큰이 없거나 유효하지 않으면 `401 unauthenticated`를 반환한다.
 2. 검증된 `uid`로 `users` 행을 upsert하고 이메일과 로그인 수단(`firebase.sign_in_provider`)을 동기화한다.
 3. **토큰 폐기 확인**(모든 기기에서 로그아웃, FR-4.6): 토큰의 `auth_time`이 `users.tokens_revoked_at`보다 이전이면 `401 token_revoked`를 반환한다. Firebase의 `check_revoked=True`는 요청마다 Firebase를 추가로 호출하므로 쓰지 않고 DB 값으로 비교한다. Firebase 쪽 refresh token도 `revoke_refresh_tokens`로 함께 폐기해서 새 토큰이 발급되지 않게 한다.
 4. `require_verified_email`: 토큰의 `email_verified`가 false면 `403 email_not_verified`를 반환한다. `/me` 계열을 뺀 모든 사용자 API에 적용한다. 구글 로그인 계정은 Firebase가 인증된 상태로 발급한다.
@@ -584,7 +584,7 @@ erDiagram
 - `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(`pgvector/pgvector:pg18-trixie` 이미지). `backend`는 기동할 때 `alembic upgrade head`를 먼저 실행한다.
 - `apps/backend/Dockerfile`은 `dev`(compose, 소스 마운트)와 `prod`(Cloud Run, 기본 타깃) 두 타깃이다. 마이그레이션은 `prod` 이미지로도 실행한다(11.1).
 - 백엔드 테스트는 별도 DB(`feynmi_test`)를 쓴다. 테스트가 스키마를 지우므로 DB 이름이 `_test`로 끝나야 한다.
-- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. 개발자는 ADC(`gcloud auth application-default login`)나 개발용 서비스 계정 키(커밋 금지)로 인증한다.
+- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. GCS와 Admin SDK 호출(토큰 폐기, 탈퇴)에는 ADC(`gcloud auth application-default login`)나 개발용 서비스 계정 키(커밋 금지)가 필요하다. ID 토큰 검증에는 필요 없다.
 - `QUEUE_MODE=inline`이면 큐 등록 대신 같은 프로세스에서 분석 함수를 백그라운드 태스크로 실행한다. 워커 로직은 운영과 같고 전달 경로만 다르다.
 
 ### 11.3 CI (FM-003)

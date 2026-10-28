@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Noto_Sans_KR, Plus_Jakarta_Sans } from "next/font/google";
+import { AccountProvider } from "@/components/account-provider";
 import "./globals.css";
 
 const notoSansKr = Noto_Sans_KR({
@@ -24,7 +25,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ko" className={`${notoSansKr.variable} ${plusJakarta.variable}`}>
-      <body>{children}</body>
+      <body>
+        <AccountProvider>{children}</AccountProvider>
+      </body>
     </html>
   );
 }
