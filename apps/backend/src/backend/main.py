@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import me
+from backend.api import me, projects
 from backend.auth.firebase import TokenVerifier, make_token_verifier
 from backend.config import Settings, get_settings
 from backend.db.session import make_engine, make_session_factory
@@ -45,6 +45,7 @@ def create_app(
 
     api = APIRouter(prefix=API_PREFIX)
     api.include_router(me.router)
+    api.include_router(projects.router)
     # 기능 라우터는 여기에 등록한다: api.include_router(...)
     app.include_router(api)
 

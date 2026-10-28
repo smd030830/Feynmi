@@ -443,7 +443,7 @@ sequenceDiagram
 | `POST /me/revoke-sessions` | 모든 기기에서 로그아웃 | 사용자 API | 071 |
 | `GET /me/settings`, `PATCH /me/settings` | AI 질문 난이도, 학습 알림, 학습 목표 | 사용자 API | 072 |
 | `DELETE /me` | 회원 탈퇴 | 사용자 API, `confirm` | 073 |
-| `GET /projects`, `POST /projects` | 프로젝트 목록(카드 데이터) / 생성(이름, 설명) | 사용자 API | 024 |
+| `GET /projects`, `POST /projects` | 프로젝트 목록(카드 데이터, 새 프로젝트에 배정될 색 `next_color`) / 생성(이름, 설명) | 사용자 API | 024 |
 | `GET /projects/{id}` | 프로젝트 헤더(이해도, 상태 분포, 자료 수), 최근 학습 3건 | 〃 | 024 |
 | `GET /projects/{id}/concepts` | 개념 목록 (상태, 점수, 자료) | 〃 | 023 |
 | `GET /projects/{id}/materials` | 자료 목록과 분석 상태 (폴링 대상) | 〃 | 021, 023 |

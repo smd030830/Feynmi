@@ -12,6 +12,31 @@ export type Me = {
   avatar_url: string | null;
 };
 
+export type ProjectColor = "indigo" | "lavender" | "cyan";
+
+export type StateCounts = {
+  understood: number;
+  partial: number;
+  misconception: number;
+  not_studied: number;
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  description: string | null;
+  color: ProjectColor;
+  score: number | null; // 프로젝트 이해도. null이면 학습한 개념이 없음
+  state_counts: StateCounts;
+  material_count: number;
+  created_at: string;
+};
+
+export type ProjectList = {
+  items: Project[];
+  next_color: ProjectColor;
+};
+
 // code는 architecture.md 8.2의 오류 코드. 네트워크 실패는 "network_error"로 둔다.
 export class ApiError extends Error {
   constructor(
@@ -31,6 +56,7 @@ const MESSAGES: Record<string, string> = {
   email_not_verified: "이메일 인증을 먼저 완료해주세요.",
   profile_required: "닉네임을 먼저 설정해주세요.",
   validation_error: "입력한 내용을 확인해주세요.",
+  not_found: "찾을 수 없거나 접근할 수 없는 항목입니다.",
 };
 
 export function apiErrorMessage(error: unknown) {
@@ -70,4 +96,19 @@ export function getMe(refreshToken = false) {
 
 export function updateProfile(nickname: string) {
   return apiFetch<Me>("/me/profile", { method: "PATCH", body: JSON.stringify({ nickname }) });
+}
+
+export function listProjects() {
+  return apiFetch<ProjectList>("/projects");
+}
+
+export function createProject(name: string, description: string) {
+  return apiFetch<Project>("/projects", {
+    method: "POST",
+    body: JSON.stringify({ name, description: description || null }),
+  });
+}
+
+export function getProject(id: string) {
+  return apiFetch<Project>(`/projects/${encodeURIComponent(id)}`);
 }
