@@ -19,6 +19,7 @@ TEST_DATABASE_URL = os.environ.get(
 
 # 앱 설정과 Alembic이 테스트 DB를 보게 한다. .env의 개발 DB로 새어 나가지 않도록 덮어쓴다.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ.setdefault("FIREBASE_PROJECT_ID", "test")  # 앱 모듈을 불러올 때 필요하다
 
 
 def _require_test_database() -> None:
