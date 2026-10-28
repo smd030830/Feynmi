@@ -17,8 +17,7 @@ uv run alembic upgrade head
 uv run uvicorn backend.main:app --reload   # http://localhost:8000/docs
 ```
 
-`.env`의 `FIREBASE_PROJECT_ID`(프론트엔드의 `NEXT_PUBLIC_FIREBASE_PROJECT_ID`와 같은 값)가 필요하다. 토큰을 검증하려면 개발용 Firebase 프로젝트의 자격 증명도 필요하다.
-`gcloud auth application-default login`을 하거나 개발용 서비스 계정 키 경로를 `GOOGLE_APPLICATION_CREDENTIALS`로 지정한다(키는 커밋하지 않는다).
+`.env`의 `FIREBASE_PROJECT_ID`(프론트엔드의 `NEXT_PUBLIC_FIREBASE_PROJECT_ID`와 같은 값)가 필요하다. ID 토큰 검증은 Firebase 공개 인증서를 쓰므로 별도 자격 증명은 필요 없다(인증서를 받으려고 인터넷에 연결되어 있어야 한다).
 compose로 띄울 때는 저장소 루트의 `.env`에 `FIREBASE_PROJECT_ID`를 둔다.
 
 ## 검사와 테스트

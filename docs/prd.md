@@ -313,7 +313,7 @@ LLM이 "이해했는가"를 통째로 판정하지 않는다. **LLM은 요소별
 | 영역 | 기술 | 비고 |
 |---|---|---|
 | 프론트엔드 | Next.js (React 기반), pnpm | PC 웹. 글꼴은 `next/font` |
-| 인증 | Firebase Authentication | 이메일/비밀번호(이메일 인증, 비밀번호 재설정), 구글 로그인. 백엔드에서 ID 토큰 검증 (Firebase Admin SDK) |
+| 인증 | Firebase Authentication | 이메일/비밀번호(이메일 인증, 비밀번호 재설정), 구글 로그인. 백엔드에서 ID 토큰 검증 (Firebase 공개 인증서로 서명·발급자·대상 확인) |
 | 백엔드 | Python, FastAPI, uv | 비동기 처리에 적합 |
 | DB | PostgreSQL 18 + pgvector | 관계형 데이터와 임베딩을 한 곳에 저장. 로컬·CI·운영(Cloud SQL)을 같은 메이저 버전으로 맞춘다 |
 | 파일 저장 | Google Cloud Storage (비공개 버킷) | 업로드 원본 보관 |

@@ -2,3 +2,6 @@
 node = "24"
 pnpm = "12.10"
 uv = "0.12"
+
+[env]
+_.path = ["apps/frontend/node_modules/.bin", "apps/backend/.venv/bin"]

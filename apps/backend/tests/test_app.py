@@ -66,6 +66,13 @@ def test_error_format(
     assert isinstance(error["message"], str)
 
 
+def test_server_error_response_has_cors_headers(client: TestClient) -> None:
+    # 500에 CORS 헤더가 없으면 브라우저가 서버 오류를 CORS 오류로 보여준다.
+    res = client.get(f"{API_PREFIX}/_test/crash", headers={"Origin": ORIGIN})
+    assert res.status_code == 500
+    assert res.headers["access-control-allow-origin"] == ORIGIN
+
+
 def test_cors_allows_configured_origin_only(client: TestClient) -> None:
     preflight = {"Access-Control-Request-Method": "GET"}
     allowed = client.options("/health", headers={"Origin": ORIGIN, **preflight})
