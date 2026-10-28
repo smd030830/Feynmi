@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { GuestOnly } from "@/components/auth-guard";
-import { buttonStyles, OutlineButtonContent } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
 import { Logo } from "@/components/logo";
+import { EmailLoginForm } from "./email-login-form";
 import { GoogleLoginButton } from "./google-login-button";
 
 export const metadata: Metadata = { title: "로그인 · Feynmi" };
@@ -38,11 +38,7 @@ export default function LoginPage() {
                 <span className="h-px flex-1 bg-line" />
               </div>
   
-              <Link href="/login/email" className={buttonStyles("outline")}>
-                <OutlineButtonContent tile={<Icon name="mail" size={14} />}>
-                  이메일로 계속하기
-                </OutlineButtonContent>
-              </Link>
+              <EmailLoginForm />
             </div>
   
             <p className="mt-8 text-caption text-subtle">
