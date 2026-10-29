@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:stop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
+    "backend:start": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/backend.ps1 -Action start",
+    "backend:stop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/backend.ps1 -Action stop",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
