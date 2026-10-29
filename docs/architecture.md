@@ -45,7 +45,7 @@ flowchart LR
   FE -- "로그인, ID 토큰 발급" --> FA
   FE -- "HTTPS + Bearer ID 토큰" --> API
   FE -- "Signed URL로 PUT (원본 업로드)" --> GCS
-  API -- "ID 토큰 검증 (Admin SDK)" --> FA
+  API -- "ID 토큰 검증 (공개 인증서)" --> FA
   API -- "Signed URL 발급, 원본 읽기" --> GCS
   API -- "작업 등록" --> Q
   Q -- "OIDC 인증 HTTP 호출<br/>/internal/tasks/analyze-material" --> API
@@ -131,7 +131,6 @@ Feynmi/
 | 경로 | 화면 (design-system 9장) | 인증 | 관련 |
 |---|---|---|---|
 | `/login` | 로그인 (9.2) | 비로그인 | FR-4.1, FR-4.4 |
-| `/login/email` | 이메일 로그인 (9.3) | 비로그인 | FR-4.1 |
 | `/signup` | 회원가입 3단계 (9.4). ② 단계는 로그인한 미인증 계정도 사용 | 비로그인 / 미인증 | FR-4.1 |
 | `/reset-password` | 비밀번호 재설정 (9.5) | 비로그인 | FR-4.1 |
 | `/onboarding` | 닉네임 설정 (9.6) | 로그인, 닉네임 없음 | FR-4.1 |
@@ -182,7 +181,7 @@ api (라우터, 요청/응답 스키마, 인증 의존성)
 - `services`만 트랜잭션을 연다. LLM 호출 중에는 DB 트랜잭션이나 행 잠금을 잡고 있지 않는다 (7.2).
 
 ### 5.2 인증과 인가 (PRD FR-4.1, FR-4.2)
-1. `get_current_user`: `Authorization` 헤더의 ID 토큰을 Firebase Admin SDK `verify_id_token`으로 검증한다. 동기 함수이므로 스레드풀에서 실행한다. 토큰이 없거나 유효하지 않으면 `401 unauthenticated`를 반환한다.
+1. `get_current_user`: `Authorization` 헤더의 ID 토큰을 Firebase 공개 인증서(`auth/firebase.py`, Cache-Control 기간만큼 캐시)로 검증한다. 서명, 만료, `aud`(= `FIREBASE_PROJECT_ID`), `iss`를 확인하며 서비스 계정 자격 증명은 필요 없다. 동기 함수이므로 스레드풀에서 실행한다. 토큰 폐기·탈퇴처럼 Firebase 계정을 바꾸는 작업(FM-071, FM-073)만 Admin SDK와 자격 증명을 쓴다. 토큰이 없거나 유효하지 않으면 `401 unauthenticated`를 반환한다.
 2. 검증된 `uid`로 `users` 행을 upsert하고 이메일과 로그인 수단(`firebase.sign_in_provider`)을 동기화한다.
 3. **토큰 폐기 확인**(모든 기기에서 로그아웃, FR-4.6): 토큰의 `auth_time`이 `users.tokens_revoked_at`보다 이전이면 `401 token_revoked`를 반환한다. Firebase의 `check_revoked=True`는 요청마다 Firebase를 추가로 호출하므로 쓰지 않고 DB 값으로 비교한다. Firebase 쪽 refresh token도 `revoke_refresh_tokens`로 함께 폐기해서 새 토큰이 발급되지 않게 한다.
 4. `require_verified_email`: 토큰의 `email_verified`가 false면 `403 email_not_verified`를 반환한다. `/me` 계열을 뺀 모든 사용자 API에 적용한다. 구글 로그인 계정은 Firebase가 인증된 상태로 발급한다.
@@ -444,7 +443,7 @@ sequenceDiagram
 | `POST /me/revoke-sessions` | 모든 기기에서 로그아웃 | 사용자 API | 071 |
 | `GET /me/settings`, `PATCH /me/settings` | AI 질문 난이도, 학습 알림, 학습 목표 | 사용자 API | 072 |
 | `DELETE /me` | 회원 탈퇴 | 사용자 API, `confirm` | 073 |
-| `GET /projects`, `POST /projects` | 프로젝트 목록(카드 데이터) / 생성(이름, 설명) | 사용자 API | 024 |
+| `GET /projects`, `POST /projects` | 프로젝트 목록(카드 데이터, 새 프로젝트에 배정될 색 `next_color`) / 생성(이름, 설명) | 사용자 API | 024 |
 | `GET /projects/{id}` | 프로젝트 헤더(이해도, 상태 분포, 자료 수), 최근 학습 3건 | 〃 | 024 |
 | `GET /projects/{id}/concepts` | 개념 목록 (상태, 점수, 자료) | 〃 | 023 |
 | `GET /projects/{id}/materials` | 자료 목록과 분석 상태 (폴링 대상) | 〃 | 021, 023 |
@@ -577,18 +576,21 @@ erDiagram
 | Vercel | `apps/frontend`를 루트로 배포. 프리뷰 배포 도메인은 Firebase 승인 도메인과 `CORS_ORIGINS`에 등록 |
 | Cloud Run `feynmi-api` | `apps/backend/Dockerfile`. Cloud SQL 커넥터로 접속. 요청 타임아웃은 분석 작업 데드라인 이상으로 설정(초기 30분). 서비스 계정 권한: Cloud SQL Client, 버킷 객체 읽기/쓰기, Cloud Tasks Enqueuer, 자기 자신에 대한 Token Creator(Signed URL 서명용), Secret Accessor |
 | Cloud Tasks `analysis` | 디스패치 데드라인 30분(HTTP 대상 상한), 최대 시도 3회. 인프라 장애에 대한 재전달용 |
-| Cloud SQL | PostgreSQL + `vector` 확장. 마이그레이션은 배포 전에 `alembic upgrade head`로 실행 |
+| Cloud SQL | PostgreSQL 18 + `vector` 확장. 마이그레이션은 배포 전에 `alembic upgrade head`로 실행 |
 | GCS | 균일 버킷 수준 액세스, 공개 액세스 방지, 프론트 오리진 PUT용 CORS. 원본과 프로필 이미지를 같은 버킷의 `users/{user_id}/` 아래에 둔다 |
 | Firebase | 이메일/비밀번호(이메일 인증 템플릿 한국어), 구글 공급자, 승인 도메인 |
 
 ### 11.2 로컬 개발 (FM-002)
-- `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(pgvector 이미지).
-- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. 개발자는 ADC(`gcloud auth application-default login`)나 개발용 서비스 계정 키(커밋 금지)로 인증한다.
+- `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(`pgvector/pgvector:pg18-trixie` 이미지). `backend`는 기동할 때 `alembic upgrade head`를 먼저 실행한다.
+- `apps/backend/Dockerfile`은 `dev`(compose, 소스 마운트)와 `prod`(Cloud Run, 기본 타깃) 두 타깃이다. 마이그레이션은 `prod` 이미지로도 실행한다(11.1).
+- 백엔드 테스트는 별도 DB(`feynmi_test`)를 쓴다. 테스트가 스키마를 지우므로 DB 이름이 `_test`로 끝나야 한다.
+- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. GCS와 Admin SDK 호출(토큰 폐기, 탈퇴)에는 ADC(`gcloud auth application-default login`)나 개발용 서비스 계정 키(커밋 금지)가 필요하다. ID 토큰 검증에는 필요 없다.
 - `QUEUE_MODE=inline`이면 큐 등록 대신 같은 프로세스에서 분석 함수를 백그라운드 태스크로 실행한다. 워커 로직은 운영과 같고 전달 경로만 다르다.
 
 ### 11.3 CI (FM-003)
 - 프론트엔드: `pnpm lint`, `pnpm build`, 타입 검사.
-- 백엔드: `ruff`, `pyright`(타입 검사), `pytest`. 테스트는 DB가 필요한 경우 pgvector 서비스 컨테이너를 쓴다. LLM은 `FakeProvider`로 대체하고 실제 API는 호출하지 않는다.
+- 백엔드: `ruff`, `pyright`(타입 검사), `pytest`. DB 테스트는 pgvector 서비스 컨테이너(PostgreSQL 18)를 쓴다. 마이그레이션 `upgrade → downgrade → upgrade`와 모델-마이그레이션 일치 여부도 여기서 검증한다. LLM은 `FakeProvider`로 대체하고 실제 API는 호출하지 않는다.
+- Docker: `docker compose config`, `dev`·`prod` 이미지 빌드, `prod` 이미지가 기동해 `/health`에 응답하는지 확인한다.
 - `packages/api-types` 생성 결과의 최신 여부 확인 (8.3).
 
 ---

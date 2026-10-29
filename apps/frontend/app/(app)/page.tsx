@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
-import { buttonStyles } from "@/components/button";
+import { CurrentNickname } from "@/components/auth-guard";
 import { GreetingEyebrow, TodayLabel } from "@/components/greeting";
 import { Icon, type IconName } from "@/components/icon";
+import { NewProjectButton } from "@/components/new-project-modal";
 
 export const metadata: Metadata = { title: "홈 · Feynmi" };
 
-// 임시 사용자와 빈 데이터. 프로젝트·세션 API(FM-024, FM-030~)가 생기면 실제 값으로 교체한다.
-const NICKNAME = "admin";
+// AuthGuard가 브라우저에서 로그인 상태를 복원한 뒤에야 그리므로 서버 렌더로는 검증할 수 없다.
+// (app) 아래 페이지마다 둔다 (레이아웃에 두면 하위 페이지에 적용되지 않는다).
+export const instant = false;
+
+// 빈 데이터. 프로젝트·세션 API(FM-024, FM-030~)가 생기면 실제 값으로 교체한다.
 
 const stats: { icon: IconName; label: string; value: string; unit?: string; tone: string }[] = [
   { icon: "target", label: "전체 이해도", value: "-", tone: "bg-[#f0fdf4] text-[#16a34a]" },
@@ -27,7 +31,7 @@ export default function HomePage() {
       <div className="flex items-end justify-between">
         <div>
           <GreetingEyebrow />
-          <h1 className="mt-1 text-title-1 font-bold text-text">안녕하세요, {NICKNAME}님</h1>
+          <h1 className="mt-1 text-title-1 font-bold text-text">안녕하세요, <CurrentNickname />님</h1>
           <p className="text-body-lg text-muted">오늘은 무엇을 이해해볼까요?</p>
         </div>
         <TodayLabel />
@@ -45,10 +49,7 @@ export default function HomePage() {
             <br />
             이해한 만큼 보여요.
           </h2>
-          <button type="button" className={buttonStyles("primary", "mt-6")}>
-            <Icon name="plus" size={18} />
-            새 프로젝트 만들기
-          </button>
+          <NewProjectButton className="mt-6">새 프로젝트 만들기</NewProjectButton>
         </div>
         <ol className="relative mr-6 flex items-center gap-3" aria-label="학습 순환">
           {cycle.map((step, index) => (
@@ -116,10 +117,7 @@ export default function HomePage() {
         <p className="mt-1 text-caption text-subtle">
           PDF나 PPTX 자료를 올리면 핵심 개념을 뽑아 드려요.
         </p>
-        <button type="button" className={buttonStyles("primary", "mt-5")}>
-          <Icon name="plus" size={18} />
-          새 프로젝트
-        </button>
+        <NewProjectButton className="mt-5">새 프로젝트</NewProjectButton>
       </section>
     </div>
   );

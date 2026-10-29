@@ -1,10 +1,12 @@
 "use client";
 
+import { signOut } from "firebase/auth";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { useMe } from "@/components/auth-guard";
 import { Icon, type IconName } from "@/components/icon";
 import { Logo } from "@/components/logo";
-import { SESSION_COOKIE } from "@/lib/session";
+import { getFirebaseAuth } from "@/lib/firebase";
 
 // design-system 9.1 공통 레이아웃: 사이드바 236px
 const nav: { href: string; label: string; icon: IconName }[] = [
@@ -16,13 +18,14 @@ const nav: { href: string; label: string; icon: IconName }[] = [
 
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 
-export function Sidebar({ nickname, email }: { nickname: string; email: string }) {
+export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
+  const me = useMe();
+  const nickname = me.nickname ?? "";
 
   function logout() {
-    document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`;
-    router.replace("/login");
+    // 로그아웃되면 AuthGuard가 /login으로 보낸다
+    void signOut(getFirebaseAuth());
   }
 
   return (
@@ -73,7 +76,7 @@ export function Sidebar({ nickname, email }: { nickname: string; email: string }
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-body font-semibold text-text">{nickname}</p>
-          <p className="truncate text-micro text-subtle">{email}</p>
+          <p className="truncate text-micro text-subtle">{me.email}</p>
         </div>
         <button
           type="button"

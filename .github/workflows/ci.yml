@@ -32,6 +32,23 @@ jobs:
     defaults:
       run:
         working-directory: apps/backend
+    services:
+      # 로컬(compose.yaml), 운영(Cloud SQL)과 같은 PostgreSQL 메이저 버전 (prd.md 9.1)
+      postgres:
+        image: pgvector/pgvector:pg18-trixie
+        env:
+          POSTGRES_USER: feynmi
+          POSTGRES_PASSWORD: feynmi
+          POSTGRES_DB: feynmi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U feynmi -d feynmi_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://feynmi:feynmi@localhost:5432/feynmi_test
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
@@ -40,3 +57,24 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run pytest
+
+  # Dockerfile과 compose.yaml이 깨지지 않았는지 확인한다.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose config --quiet
+      - run: docker build --target dev apps/backend
+      - run: docker build --target prod -t feynmi-api apps/backend
+      # 운영 이미지가 기동하고 /health에 응답하는지 확인한다 (DB 접속 없이 뜬다).
+      - name: Smoke test prod image
+        run: |
+          docker run -d --name api -p 8080:8080 \
+            -e DATABASE_URL=postgresql+asyncpg://u:p@localhost/unused \
+            -e FIREBASE_PROJECT_ID=ci feynmi-api
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8080/health && exit 0
+            sleep 1
+          done
+          docker logs api
+          exit 1

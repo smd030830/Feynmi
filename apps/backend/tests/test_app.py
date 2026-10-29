@@ -9,11 +9,16 @@ from backend.errors import AppError
 from backend.main import API_PREFIX, create_app
 
 ORIGIN = "http://localhost:3000"
+UNUSED_DATABASE_URL = "postgresql+asyncpg://user:pw@localhost/unused"  # 앱 생성은 접속하지 않는다
 
 
 @pytest.fixture
 def app() -> FastAPI:
-    app = create_app(Settings(cors_origins=[ORIGIN]))
+    app = create_app(
+        Settings(
+            database_url=UNUSED_DATABASE_URL, firebase_project_id="test", cors_origins=[ORIGIN]
+        )
+    )
 
     @app.get(f"{API_PREFIX}/_test/app-error")
     async def app_error() -> None:
@@ -61,6 +66,13 @@ def test_error_format(
     assert isinstance(error["message"], str)
 
 
+def test_server_error_response_has_cors_headers(client: TestClient) -> None:
+    # 500에 CORS 헤더가 없으면 브라우저가 서버 오류를 CORS 오류로 보여준다.
+    res = client.get(f"{API_PREFIX}/_test/crash", headers={"Origin": ORIGIN})
+    assert res.status_code == 500
+    assert res.headers["access-control-allow-origin"] == ORIGIN
+
+
 def test_cors_allows_configured_origin_only(client: TestClient) -> None:
     preflight = {"Access-Control-Request-Method": "GET"}
     allowed = client.options("/health", headers={"Origin": ORIGIN, **preflight})
@@ -75,4 +87,5 @@ def test_cors_origins_from_comma_separated_env(
 ) -> None:
     monkeypatch.chdir(tmp_path)  # 로컬 .env를 읽지 않게 한다
     monkeypatch.setenv("CORS_ORIGINS", f"{ORIGIN}, https://feynmi.vercel.app")
-    assert Settings().cors_origins == [ORIGIN, "https://feynmi.vercel.app"]
+    settings = Settings()  # pyright: ignore[reportCallIssue]
+    assert settings.cors_origins == [ORIGIN, "https://feynmi.vercel.app"]
