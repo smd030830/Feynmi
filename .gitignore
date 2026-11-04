@@ -221,3 +221,13 @@ __marimo__/
 # Local IntelliJ settings and agent runtime files
 .idea/
 .omx/
+
+# Personal IDE/agent settings and local credentials
+.vscode/
+.run/
+.claude/
+.codex/
+.env.*
+!.env.example
+mise.local.toml
+*.local.toml

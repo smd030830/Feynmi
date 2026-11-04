@@ -14,7 +14,13 @@ UNUSED_DATABASE_URL = "postgresql+asyncpg://user:pw@localhost/unused"  # 앱 생
 
 @pytest.fixture
 def app() -> FastAPI:
-    app = create_app(Settings(database_url=UNUSED_DATABASE_URL, cors_origins=[ORIGIN]))
+    app = create_app(
+        Settings(
+            database_url=UNUSED_DATABASE_URL,
+            firebase_project_id="test",
+            cors_origins=[ORIGIN],
+        )
+    )
 
     @app.get(f"{API_PREFIX}/_test/app-error")
     async def app_error() -> None:
@@ -40,6 +46,25 @@ def test_health(client: TestClient) -> None:
     res = client.get("/health")
     assert res.status_code == 200
     assert res.json() == {"status": "ok"}
+
+
+def test_settings_load_root_env_outside_working_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from backend import config
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"DATABASE_URL={UNUSED_DATABASE_URL}\nFIREBASE_PROJECT_ID=local-project\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    monkeypatch.setitem(config.Settings.model_config, "env_file", env_file)
+    monkeypatch.chdir(tmp_path.parent)
+    settings = Settings()  # pyright: ignore[reportCallIssue]
+    assert settings.database_url == UNUSED_DATABASE_URL
+    assert settings.firebase_project_id == "local-project"
 
 
 @pytest.mark.parametrize(
