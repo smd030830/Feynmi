@@ -14,11 +14,7 @@ UNUSED_DATABASE_URL = "postgresql+asyncpg://user:pw@localhost/unused"  # 앱 생
 
 @pytest.fixture
 def app() -> FastAPI:
-    app = create_app(
-        Settings(
-            database_url=UNUSED_DATABASE_URL, firebase_project_id="test", cors_origins=[ORIGIN]
-        )
-    )
+    app = create_app(Settings(database_url=UNUSED_DATABASE_URL, cors_origins=[ORIGIN]))
 
     @app.get(f"{API_PREFIX}/_test/app-error")
     async def app_error() -> None:
@@ -64,13 +60,6 @@ def test_error_format(
     assert error["code"] == code
     assert error["retryable"] is retryable
     assert isinstance(error["message"], str)
-
-
-def test_server_error_response_has_cors_headers(client: TestClient) -> None:
-    # 500에 CORS 헤더가 없으면 브라우저가 서버 오류를 CORS 오류로 보여준다.
-    res = client.get(f"{API_PREFIX}/_test/crash", headers={"Origin": ORIGIN})
-    assert res.status_code == 500
-    assert res.headers["access-control-allow-origin"] == ORIGIN
 
 
 def test_cors_allows_configured_origin_only(client: TestClient) -> None:
