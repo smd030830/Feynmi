@@ -1,6 +1,14 @@
 # Feynmi
 팀플 github
 
+## 개인 설정
+
+저장소 루트의 `.env.example`을 `.env`로 복사하고 Firebase 값을 채웁니다.
+`NEXT_PUBLIC_API_BASE_URL`은 로컬에서 `http://localhost:8000`을 사용합니다.
+`.env`와 개인 IDE·에이전트 설정(`.idea`, `.vscode`, `.run`, `.claude`, `.codex`)은
+Git 추적에서 제외합니다. 실행 설정은 각 PC에 유지하며 공유할 환경변수 이름은
+값이 없는 `.env.example`에 추가합니다.
+
 ## IntelliJ 프론트엔드 실행 (Windows)
 
 `mise.toml` 기준의 Node.js와 pnpm을 설치하고, `apps/frontend`에서

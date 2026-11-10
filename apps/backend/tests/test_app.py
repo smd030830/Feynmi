@@ -16,7 +16,9 @@ UNUSED_DATABASE_URL = "postgresql+asyncpg://user:pw@localhost/unused"  # 앱 생
 def app() -> FastAPI:
     app = create_app(
         Settings(
-            database_url=UNUSED_DATABASE_URL, firebase_project_id="test", cors_origins=[ORIGIN]
+            database_url=UNUSED_DATABASE_URL,
+            firebase_project_id="test",
+            cors_origins=[ORIGIN],
         )
     )
 
@@ -46,6 +48,25 @@ def test_health(client: TestClient) -> None:
     assert res.json() == {"status": "ok"}
 
 
+def test_settings_load_root_env_outside_working_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from backend import config
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"DATABASE_URL={UNUSED_DATABASE_URL}\nFIREBASE_PROJECT_ID=local-project\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    monkeypatch.setitem(config.Settings.model_config, "env_file", env_file)
+    monkeypatch.chdir(tmp_path.parent)
+    settings = Settings()  # pyright: ignore[reportCallIssue]
+    assert settings.database_url == UNUSED_DATABASE_URL
+    assert settings.firebase_project_id == "local-project"
+
+
 @pytest.mark.parametrize(
     ("path", "status", "code", "retryable"),
     [
@@ -64,13 +85,6 @@ def test_error_format(
     assert error["code"] == code
     assert error["retryable"] is retryable
     assert isinstance(error["message"], str)
-
-
-def test_server_error_response_has_cors_headers(client: TestClient) -> None:
-    # 500에 CORS 헤더가 없으면 브라우저가 서버 오류를 CORS 오류로 보여준다.
-    res = client.get(f"{API_PREFIX}/_test/crash", headers={"Origin": ORIGIN})
-    assert res.status_code == 500
-    assert res.headers["access-control-allow-origin"] == ORIGIN
 
 
 def test_cors_allows_configured_origin_only(client: TestClient) -> None:

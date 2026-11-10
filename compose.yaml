@@ -25,6 +25,9 @@ services:
       target: dev
     # 기동할 때 마이그레이션을 적용한다.
     command: sh -c "alembic upgrade head && uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000"
+    env_file:
+      - path: .env.llm
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://feynmi:feynmi@db:5432/feynmi
       CORS_ORIGINS: http://localhost:3000
@@ -32,6 +35,12 @@ services:
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     volumes:
       - ${BACKEND_SRC:-./apps/backend}:/app
     depends_on:
