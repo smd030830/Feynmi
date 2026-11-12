@@ -27,6 +27,8 @@ class ProjectColor(StrEnum):
 class FileType(StrEnum):
     PDF = "pdf"
     PPTX = "pptx"
+    PNG = "png"
+    JPG = "jpg"  # .jpeg 포함
 
 
 class MaterialStatus(StrEnum):
