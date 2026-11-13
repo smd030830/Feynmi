@@ -129,6 +129,7 @@ async def retry_material(db: AsyncSession, user_id: uuid.UUID, material_id: uuid
         raise AppError(409, "invalid_state", f"material is {material.status}")
     material.status = MaterialStatus.QUEUED.value
     material.failure_code = None
+    material.page_texts = None
     material.analysis_attempt += 1
     await db.commit()
     await db.refresh(material)

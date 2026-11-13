@@ -320,7 +320,7 @@ function PagesModal({ material, onClose }: { material: Material; onClose: () => 
       <div className="max-h-[60vh] overflow-y-auto pr-1">
         {error !== undefined && <p className="text-caption text-danger">{apiErrorMessage(error)}</p>}
         {!pages && error === undefined && (
-          <p className="text-caption text-subtle">글자를 다시 읽는 중이에요… (그림이 많으면 오래 걸려요)</p>
+          <p className="text-caption text-subtle">글자를 불러오는 중이에요…</p>
         )}
         {pages?.map((page) => (
           <section key={page.number} className="border-b border-line py-3 last:border-0">

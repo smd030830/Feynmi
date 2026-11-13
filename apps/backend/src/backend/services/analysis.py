@@ -106,6 +106,7 @@ async def analyze_material(
                 data = await asyncio.to_thread(storage.load, material.gcs_path)
                 pages = await read_material(data, material.file_type, ocr_factory(image_ai))
                 material.page_count = len(pages)
+                material.page_texts = [page.text for page in pages]
                 chunks = await asyncio.to_thread(split_pages, pages)
 
                 # 재시도라면 이전 시도의 조각을 지운다 (save_chunks는 중복 저장을 거부한다).

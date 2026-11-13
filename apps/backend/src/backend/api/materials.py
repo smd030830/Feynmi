@@ -6,6 +6,7 @@ architecture 7.1은 Signed URL로 GCS에 직접 올리고 Cloud Tasks로 워커�
 목록·재시도의 응답 모양은 7.1 흐름과 같게 둔다.
 """
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -121,15 +122,25 @@ async def retry_material(
 async def material_pages(
     material_id: uuid.UUID, request: Request, current: ProfileUser, db: DbSession
 ) -> PagesResponse:
-    """시연용: 분석이 끝난 자료에서 뽑힌 쪽별 글자를 보여준다 (원본을 다시 읽는다)."""
+    """시연용: 분석이 끝난 자료에서 뽑힌 쪽별 글자를 보여준다 (분석 때 저장한 글자)."""
     material = await materials.owned_material(db, current.user.id, material_id)
     if material.status != MaterialStatus.READY:
         raise AppError(409, "invalid_state", f"material is {material.status}")
+    if material.page_texts is not None:
+        return PagesResponse(
+            pages=[
+                PageResponse(number=number, text=text)
+                for number, text in enumerate(material.page_texts, start=1)
+            ]
+        )
+    # 글자를 저장하기 전에 분석한 자료: 원본을 다시 읽는다
     state = request.app.state
     try:
-        pages = await read_material(
-            state.storage.load(material.gcs_path), material.file_type, state.ocr_factory(None)
-        )
+        data = await asyncio.to_thread(state.storage.load, material.gcs_path)
+    except FileNotFoundError as exc:
+        raise AppError(409, "original_missing", "original file is no longer in storage") from exc
+    try:
+        pages = await read_material(data, material.file_type, state.ocr_factory(None))
     except IngestError as exc:
         raise AppError(409, "invalid_state", exc.code.value) from exc
     return PagesResponse(pages=[PageResponse(number=p.number, text=p.text) for p in pages])

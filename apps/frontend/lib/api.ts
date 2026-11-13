@@ -88,6 +88,7 @@ const MESSAGES: Record<string, string> = {
   unsupported_format: "지원하지 않는 형식입니다. PDF, PPTX, PNG, JPG만 올릴 수 있어요.",
   file_too_large: "파일이 너무 큽니다. 파일당 50MB까지 올릴 수 있어요.",
   empty_file: "빈 파일입니다. 내용이 있는 파일을 올려주세요.",
+  original_missing: "보관된 원본 파일을 찾을 수 없어요. 자료를 다시 올려주세요.",
 };
 
 // 분석 실패 사유 (materials.failure_code, PRD FR-1.4, FR-1.7)

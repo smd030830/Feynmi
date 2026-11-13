@@ -404,3 +404,32 @@ async def test_server_restart_marks_interrupted_analyses_as_failed(
     assert {m["title"]: m["status"] for m in await materials(client, project)}[
         "도중.pdf"
     ] == "ready"
+
+
+# --- 뽑힌 글자 보기: DB에 저장된 글자 / 원본이 사라진 경우 ---
+
+
+async def test_pages_come_from_db_without_rereading_the_original(
+    app: FastAPI, client: httpx.AsyncClient, project: str, tmp_path: Path
+) -> None:
+    await upload(client, project, "사진.png", png())
+    [item] = await materials(client, project)
+    for original in (tmp_path / "materials").rglob("original.*"):
+        original.unlink()  # 원본이 사라져도
+    app.state.ocr_factory = lambda _=None: None  # OCR 없이도
+    res = await client.get(f"{API_PREFIX}/materials/{item['id']}/pages", headers=auth(ALICE))
+    assert res.json()["pages"] == [{"number": 1, "text": "사진 속 프로세스 상태도"}]
+
+
+async def test_old_material_without_saved_text_and_original_reports_missing(
+    client: httpx.AsyncClient, project: str, tmp_path: Path, engine: AsyncEngine
+) -> None:
+    await upload(client, project, "강의.pdf", make_pdf(["본문"]))
+    [item] = await materials(client, project)
+    async with make_session_factory(engine)() as db:  # 글자 저장 기능 전에 분석된 자료
+        await db.execute(update(Material).values(page_texts=None))
+        await db.commit()
+    for original in (tmp_path / "materials").rglob("original.*"):
+        original.unlink()
+    res = await client.get(f"{API_PREFIX}/materials/{item['id']}/pages", headers=auth(ALICE))
+    assert (res.status_code, res.json()["error"]["code"]) == (409, "original_missing")

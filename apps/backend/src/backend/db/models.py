@@ -179,6 +179,8 @@ class Material(Base):
     status: Mapped[str] = mapped_column(Text, server_default=MaterialStatus.PENDING_UPLOAD.value)
     failure_code: Mapped[str | None] = mapped_column(Text)
     analysis_attempt: Mapped[int] = mapped_column(server_default=text("0"))
+    # 쪽별로 뽑힌 글자(OCR 포함). 분석이 끝나면 채운다. "글자 보기"가 원본을 다시 읽지 않게 한다
+    page_texts: Mapped[list[str] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _updated_at()
 
