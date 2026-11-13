@@ -309,3 +309,32 @@ async def test_duplicate_embedding_indices_are_rejected() -> None:
     ) as client:
         with pytest.raises(LLMError):
             await OpenAIProvider(settings(llm_max_retries=0), client).embed(["a", "b"])
+
+
+async def test_image_text_sends_png_and_returns_text() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        return response({"text": " 프로세스 상태도 \n"})
+
+    configured = settings(llm_image_text_model="test-vision")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        text = await OpenAIProvider(configured, client).read_image_text(b"\x89PNG", "image/png")
+    assert text == "프로세스 상태도"
+    payload = calls[0]
+    assert payload["model"] == "test-vision"
+    assert "reasoning" not in payload  # effort를 비우면 보내지 않는다
+    assert payload["store"] is False
+    [image] = payload["input"][0]["content"]
+    assert image == {"type": "input_image", "image_url": "data:image/png;base64,iVBORw=="}
+    assert "추측" in payload["instructions"]
+
+
+async def test_image_text_requires_configured_model_and_known_type() -> None:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: response({}))) as client:
+        with pytest.raises(LLMError, match="not configured"):
+            await OpenAIProvider(settings(), client).read_image_text(b"x", "image/png")
+        provider = OpenAIProvider(settings(llm_image_text_model="m"), client)
+        with pytest.raises(ValueError):
+            await provider.read_image_text(b"x", "image/gif")

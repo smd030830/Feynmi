@@ -3,14 +3,20 @@
 애매한 결과를 AI로 다시 읽을지는 호출하는 쪽(수집 파이프라인)이 정한다.
 """
 
+import asyncio
+import io
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 import pytesseract
 from PIL import Image, ImageOps
 
 from backend.ingest.base import normalize_text
 from backend.ingest.config import OCRSettings
+from backend.llm import LLMError
+
+# AI에 보낼 그림의 긴 변 상한 (비용과 전송량 보호)
+_AI_MAX_SIDE = 2048
 
 # Tesseract가 잘 읽는 글자 높이를 맞추기 위해, 긴 변이 이보다 작으면 2배로 키운다
 _UPSCALE_BELOW = 1000
@@ -129,3 +135,56 @@ def doubt_reason(
 def is_ocr_target(image_size: tuple[int, int], settings: OCRSettings) -> bool:
     """아이콘·장식처럼 작은 그림은 읽지 않는다."""
     return min(image_size) >= settings.ocr_min_image_side
+
+
+@dataclass(frozen=True)
+class OcrOutcome:
+    text: str
+    source: Literal["tesseract", "ai"]
+    # Tesseract 결과가 애매했던 이유 (믿을 만했으면 None)
+    doubt: str | None
+
+
+class ImageTextReader(Protocol):
+    """AI 보조 판독기. LLMProvider.read_image_text와 같은 모양이다."""
+
+    async def read_image_text(self, image: bytes, mime_type: str) -> str: ...
+
+
+def _to_png(image: Image.Image) -> bytes:
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    image.thumbnail((_AI_MAX_SIDE, _AI_MAX_SIDE))
+    out = io.BytesIO()
+    image.save(out, format="PNG")
+    return out.getvalue()
+
+
+class HybridOcr:
+    """기본은 Tesseract, 결과가 애매할 때만 AI로 다시 읽는다. 자료 하나마다 새로 만든다.
+
+    AI가 없거나(키·모델 미설정), 호출 상한에 닿았거나, AI 호출이 실패하면 Tesseract 결과를 쓴다.
+    """
+
+    def __init__(
+        self,
+        engine: OcrEngine,
+        settings: OCRSettings,
+        ai: ImageTextReader | None = None,
+    ) -> None:
+        self.engine = engine
+        self.settings = settings
+        self.ai = ai
+        self.ai_calls = 0
+
+    async def read(self, image: Image.Image) -> OcrOutcome:
+        result = await asyncio.to_thread(self.engine.read, image)
+        doubt = doubt_reason(result, image.size, self.settings)
+        fallback = OcrOutcome(result.text, "tesseract", doubt)
+        if doubt is None or self.ai is None or self.ai_calls >= self.settings.ocr_ai_max_calls:
+            return fallback
+        self.ai_calls += 1
+        try:
+            text = await self.ai.read_image_text(_to_png(image), "image/png")
+        except LLMError, ValueError:
+            return fallback
+        return OcrOutcome(normalize_text(text), "ai", doubt)

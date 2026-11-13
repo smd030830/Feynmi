@@ -1,5 +1,6 @@
 """OCR 엔진과 '애매함' 판단. 진짜 Tesseract 검사는 설치된 PC/CI에서만 돈다."""
 
+import io
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from backend.ingest.config import OCRSettings
 from backend.ingest.ocr import (
+    HybridOcr,
+    OcrOutcome,
     OcrResult,
     OcrUnavailableError,
     TesseractEngine,
@@ -16,6 +19,7 @@ from backend.ingest.ocr import (
     is_ocr_target,
     prepare,
 )
+from backend.llm import LLMError
 
 # 기준값은 기본값으로 고정하고, Tesseract 경로만 .env(TESSERACT_CMD)를 따른다
 SETTINGS = OCRSettings(_env_file=None, tesseract_cmd=OCRSettings().tesseract_cmd)  # pyright: ignore[reportCallIssue]
@@ -149,3 +153,80 @@ def test_tesseract_reads_korean() -> None:
 def test_blank_image_reads_nothing() -> None:
     result = TesseractEngine(SETTINGS).read(Image.new("RGB", (800, 600), "white"))
     assert result.text == ""
+
+
+# --- 하이브리드: Tesseract 먼저, 애매하면 AI (가짜 엔진·가짜 AI) ---
+
+
+class FakeEngine:
+    def __init__(self, result: OcrResult) -> None:
+        self.result = result
+
+    def read(self, image: Image.Image) -> OcrResult:
+        return self.result
+
+
+class FakeAI:
+    def __init__(self, text: str = "AI가 읽은 글자", error: Exception | None = None) -> None:
+        self.text = text
+        self.error = error
+        self.calls: list[tuple[bytes, str]] = []
+
+    async def read_image_text(self, image: bytes, mime_type: str) -> str:
+        self.calls.append((image, mime_type))
+        if self.error:
+            raise self.error
+        return self.text
+
+
+CLEAR = OcrResult("프로세스와 스레드", confidence=92.0)
+BLURRY = OcrResult("프로세 스와", confidence=35.0)
+SLIDE_IMAGE = Image.new("RGB", (800, 400), "white")  # 큰 그림 기준(50만 화소) 미만
+
+
+async def test_clear_result_never_calls_ai() -> None:
+    ai = FakeAI()
+    outcome = await HybridOcr(FakeEngine(CLEAR), SETTINGS, ai).read(SLIDE_IMAGE)
+    assert outcome == OcrOutcome("프로세스와 스레드", "tesseract", None)
+    assert ai.calls == []
+
+
+async def test_doubtful_result_is_reread_by_ai_as_png() -> None:
+    ai = FakeAI(" 프로세스와 스레드 \r\n")
+    outcome = await HybridOcr(FakeEngine(BLURRY), SETTINGS, ai).read(SLIDE_IMAGE)
+    assert outcome == OcrOutcome("프로세스와 스레드", "ai", "low confidence 35")
+    [(png, mime)] = ai.calls
+    assert mime == "image/png" and png.startswith(b"\x89PNG")
+
+
+async def test_large_images_are_shrunk_before_sending_to_ai() -> None:
+    ai = FakeAI()
+    await HybridOcr(FakeEngine(BLURRY), SETTINGS, ai).read(Image.new("RGB", (6000, 3000)))
+    sent = Image.open(io.BytesIO(ai.calls[0][0]))
+    assert max(sent.size) == 2048
+
+
+async def test_without_ai_the_tesseract_result_is_kept() -> None:
+    outcome = await HybridOcr(FakeEngine(BLURRY), SETTINGS, None).read(SLIDE_IMAGE)
+    assert outcome == OcrOutcome("프로세 스와", "tesseract", "low confidence 35")
+
+
+@pytest.mark.parametrize("error", [LLMError("down"), ValueError("bad output")])
+async def test_ai_failure_falls_back_to_tesseract(error: Exception) -> None:
+    outcome = await HybridOcr(FakeEngine(BLURRY), SETTINGS, FakeAI(error=error)).read(SLIDE_IMAGE)
+    assert (outcome.text, outcome.source) == ("프로세 스와", "tesseract")
+
+
+async def test_ai_calls_are_capped_per_material() -> None:
+    ai = FakeAI()
+    ocr = HybridOcr(FakeEngine(BLURRY), SETTINGS.model_copy(update={"ocr_ai_max_calls": 2}), ai)
+    sources = [(await ocr.read(SLIDE_IMAGE)).source for _ in range(4)]
+    assert sources == ["ai", "ai", "tesseract", "tesseract"]
+    assert len(ai.calls) == 2
+
+
+async def test_zero_cap_disables_ai() -> None:
+    ai = FakeAI()
+    ocr = HybridOcr(FakeEngine(BLURRY), SETTINGS.model_copy(update={"ocr_ai_max_calls": 0}), ai)
+    assert (await ocr.read(SLIDE_IMAGE)).source == "tesseract"
+    assert ai.calls == []
