@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.db.models import Chunk, Material, Project
@@ -34,6 +34,38 @@ def load_llm_settings() -> LLMSettings | None:
         return LLMSettings()  # pyright: ignore[reportCallIssue]
     except Exception:
         return None
+
+
+# 서버 안에서 돌던 분석은 서버가 꺼지면 함께 사라진다
+_INTERRUPTED = (
+    MaterialStatus.PENDING_UPLOAD,
+    MaterialStatus.QUEUED,
+    MaterialStatus.EXTRACTING,
+    MaterialStatus.GENERATING_CONCEPTS,
+)
+
+
+async def recover_interrupted(session_factory: async_sessionmaker[AsyncSession]) -> int:
+    """서버가 켜질 때, 끝나지 못한 분석을 실패로 바꿔 재시도 버튼이 보이게 한다.
+
+    분석이 서버 프로세스 안에서 도는 로컬 방식 전용이다. 서버를 여러 개 띄우면 쓰지 않는다
+    (architecture 7.1의 Cloud Tasks 방식은 작업 큐가 다시 실행해 준다).
+    """
+    async with session_factory() as db:
+        result = await db.execute(
+            update(Material)
+            .where(Material.status.in_([s.value for s in _INTERRUPTED]))
+            .values(
+                status=MaterialStatus.FAILED.value,
+                failure_code=FailureCode.INTERNAL_ERROR.value,
+            )
+            .returning(Material.id)
+        )
+        recovered = len(result.scalars().all())
+        await db.commit()
+    if recovered:
+        logger.warning("marked %d interrupted analyses as failed", recovered)
+    return recovered
 
 
 async def _set_status(

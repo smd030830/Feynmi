@@ -24,7 +24,7 @@ from test_ingest import make_pdf
 from backend.api import materials as materials_api
 from backend.auth.firebase import VerifiedToken
 from backend.config import Settings
-from backend.db.models import User
+from backend.db.models import Material, User
 from backend.db.session import make_session_factory
 from backend.domain.enums import SignInProvider
 from backend.errors import AppError
@@ -372,3 +372,35 @@ def test_storage_key_cannot_escape_root(tmp_path: Path) -> None:
     storage = LocalStorage(tmp_path / "materials")
     with pytest.raises(ValueError):
         storage.save("../outside.txt", b"x")
+
+
+# --- 서버 재시작 ---
+
+
+async def test_server_restart_marks_interrupted_analyses_as_failed(
+    app: FastAPI, client: httpx.AsyncClient, project: str, engine: AsyncEngine
+) -> None:
+    await upload(client, project, "완료.pdf", make_pdf(["끝난 자료"]))
+    await upload(client, project, "도중.pdf", make_pdf(["분석 도중 서버가 꺼진 자료"]))
+    async with make_session_factory(engine)() as db:  # 분석 도중에 서버가 꺼진 상황
+        await db.execute(
+            update(Material).where(Material.title == "도중.pdf").values(status="extracting")
+        )
+        await db.commit()
+
+    async with app.router.lifespan_context(app):  # 서버 다시 켜기
+        pass
+
+    by_title = {m["title"]: m for m in await materials(client, project)}
+    assert (by_title["도중.pdf"]["status"], by_title["도중.pdf"]["failure_code"]) == (
+        "failed",
+        "internal_error",
+    )
+    assert by_title["완료.pdf"]["status"] == "ready"  # 끝난 자료는 그대로
+    retry = await client.post(
+        f"{API_PREFIX}/materials/{by_title['도중.pdf']['id']}/retry", headers=auth(ALICE)
+    )
+    assert retry.status_code == 202
+    assert {m["title"]: m["status"] for m in await materials(client, project)}[
+        "도중.pdf"
+    ] == "ready"

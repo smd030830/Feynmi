@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
@@ -12,11 +13,13 @@ from backend.db.session import make_engine, make_session_factory
 from backend.errors import register_error_handlers
 from backend.ingest import make_ocr
 from backend.services.account import retry_deletions
-from backend.services.analysis import load_llm_settings
+from backend.services.analysis import load_llm_settings, recover_interrupted
 from backend.services.cloud import AccountCloud, GoogleAccountCloud
 from backend.services.storage import LocalStorage
 
 API_PREFIX = "/api/v1"
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -29,6 +32,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # 서버가 꺼질 때 분석 중이던 자료는 실패로 돌려 재시도할 수 있게 한다
+        try:
+            await recover_interrupted(app.state.session_factory)
+        except Exception:  # DB가 아직 안 떴어도 서버는 켠다
+            logger.warning("could not recover interrupted analyses", exc_info=True)
         recovery = asyncio.create_task(
             retry_deletions(app.state.session_factory, app.state.account_cloud)
         )
