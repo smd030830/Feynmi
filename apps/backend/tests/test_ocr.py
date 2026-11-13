@@ -13,11 +13,12 @@ from backend.ingest.ocr import (
     OcrResult,
     OcrUnavailableError,
     TesseractEngine,
-    _from_data,
+    clean_text,
     doubt_reason,
     garbage_ratio,
     is_ocr_target,
     prepare,
+    word_confidence,
 )
 from backend.llm import LLMError
 
@@ -94,18 +95,31 @@ def test_tiny_images_are_skipped() -> None:
     assert is_ocr_target((1024, 1425), SETTINGS)  # 포스터
 
 
-def test_tesseract_words_are_grouped_into_lines() -> None:
-    data = {
-        "text": ["", "운영체제", "3강", "", "프로세스", "~"],
-        "conf": [-1, 90, 80, -1, 70, 10],
-        "block_num": [1, 1, 1, 1, 1, 2],
-        "par_num": [1, 1, 1, 1, 1, 1],
-        "line_num": [0, 1, 1, 2, 2, 1],
-    }
-    result = _from_data(data)
-    assert result.text == "운영체제 3강\n프로세스\n~"
-    assert result.confidence == pytest.approx((90 + 80 + 70 + 10) / 4)
-    assert _from_data({k: [] for k in data}) == OcrResult("", None)
+def test_word_confidence_from_tesseract_table() -> None:
+    rows = [
+        ["level", "left", "conf", "text"],
+        ["1", "0", "-1", ""],  # 덩어리 행 (단어 아님)
+        ["5", "0", "90", "운영체제"],
+        ["5", "9", "80", "3강"],
+        ["5", "0", "70", "프로세스"],
+        ["5", "0", "10", "~"],
+        ["5", "0", "95", " "],  # 빈 단어는 세지 않는다
+    ]
+    tsv = "\n".join("\t".join(row) for row in rows)
+    confidence, weak = word_confidence(tsv)
+    assert confidence == pytest.approx((90 + 80 + 70 + 10) / 4)
+    assert weak == 0.25
+    assert word_confidence("level\tconf\ttext\n") == (None, 0.0)
+    assert word_confidence("") == (None, 0.0)
+
+
+def test_clean_text_drops_blank_lines_and_double_spaces() -> None:
+    assert clean_text("운영체제  프로세스\n\n\n선점형 \r\n\n") == "운영체제 프로세스\n선점형"
+
+
+def test_many_unsure_words_are_doubtful() -> None:
+    result = OcrResult("운영체제 rz 스케줄링 fi", confidence=75.0, weak_ratio=0.5)
+    assert doubt_reason(result, (400, 300), SETTINGS) == "many unsure words 50%"
 
 
 def test_prepare_flattens_transparency_and_upscales_small_images() -> None:

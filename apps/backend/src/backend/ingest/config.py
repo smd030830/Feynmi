@@ -15,12 +15,18 @@ class OCRSettings(BaseSettings):
     # (Windows 예: C:\Program Files\Tesseract-OCR\tesseract.exe)
     tesseract_cmd: str | None = None
     ocr_lang: str = "kor+eng"
+    # 그림 한 장을 읽는 시간 상한(초). 넘으면 그 그림은 못 읽은 것으로 본다 (데드라인 보호)
+    ocr_timeout_seconds: int = Field(default=60, ge=1)
     # 이보다 작은 그림(가로나 세로, 픽셀)은 아이콘·장식으로 보고 읽지 않는다
     ocr_min_image_side: int = Field(default=100, ge=1)
     # 자료 하나에서 OCR할 그림 수 상한 (분석 데드라인 30분 보호, architecture 7.1)
     ocr_max_images: int = Field(default=300, ge=0)
     # "애매함" 기준: 단어 평균 신뢰도가 이보다 낮으면 애매
     ocr_min_confidence: float = Field(default=60.0, ge=0, le=100)
+    # "애매함" 기준: 신뢰도 60 미만 단어의 비율이 이보다 높으면 애매
+    ocr_max_weak_ratio: float = Field(default=0.3, ge=0, le=1)
+    # 이 비율을 넘으면 Tesseract를 "한 덩어리 글" 모드로 한 번 더 돌려 더 나은 쪽을 쓴다
+    ocr_retry_weak_ratio: float = Field(default=0.05, ge=0, le=1)
     # "애매함" 기준: 큰 그림(이 면적 이상)인데 글자가 이보다 적으면 애매
     ocr_large_image_pixels: int = Field(default=500_000, ge=1)
     ocr_min_chars_for_large: int = Field(default=10, ge=0)

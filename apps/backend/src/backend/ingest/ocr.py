@@ -5,7 +5,10 @@
 
 import asyncio
 import io
+import logging
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 import pytesseract
@@ -15,11 +18,19 @@ from backend.ingest.base import normalize_text
 from backend.ingest.config import OCRSettings
 from backend.llm import LLMError
 
+logger = logging.getLogger(__name__)
+
 # AI에 보낼 그림의 긴 변 상한 (비용과 전송량 보호)
 _AI_MAX_SIDE = 2048
 
 # Tesseract가 잘 읽는 글자 높이를 맞추기 위해, 긴 변이 이보다 작으면 2배로 키운다
 _UPSCALE_BELOW = 1000
+# 이 신뢰도 미만인 단어를 "자신 없는 단어"로 센다
+_WEAK_WORD = 60
+# 페이지 구성 분석(다단 지원)으로 먼저 읽고, 자신 없는 단어가 섞이면 한 덩어리 글로 다시 읽어 본다.
+# 슬라이드처럼 줄 간격이 넓은 그림에서 기본 모드는 줄을 쪼개 엉뚱한 글자를 만들기 쉽다.
+_LAYOUT_PSM = "--psm 3"
+_BLOCK_PSM = "--psm 6"
 
 
 @dataclass(frozen=True)
@@ -27,6 +38,8 @@ class OcrResult:
     text: str
     # 단어 평균 신뢰도(0~100). 읽힌 단어가 없으면 None
     confidence: float | None
+    # 신뢰도 60 미만 단어의 비율 (평균이 높아도 쓰레기 단어가 섞였는지 본다)
+    weak_ratio: float = 0.0
 
 
 class OcrEngine(Protocol):
@@ -72,31 +85,66 @@ class TesseractEngine:
             raise OcrUnavailableError(f"tesseract language data missing: {sorted(missing)}")
 
     def read(self, image: Image.Image) -> OcrResult:
+        prepared = prepare(image)
+        result = self._run(prepared, _LAYOUT_PSM)
+        if result.weak_ratio > self.settings.ocr_retry_weak_ratio:
+            block = self._run(prepared, _BLOCK_PSM)
+            if (block.confidence or 0) > (result.confidence or 0):
+                result = block
+        return result
+
+    def _run(self, image: Image.Image, psm: str) -> OcrResult:
+        """한 번 실행으로 글자(txt)와 단어별 신뢰도(tsv)를 함께 받는다.
+
+        글자는 Tesseract가 직접 띄어 쓴 txt를 쓴다. tsv는 한글을 음절마다 다른 단어로 나눠
+        띄어쓰기를 되살릴 수 없다("프 로 세 스").
+        """
         self._use_cmd()
-        try:
-            data = pytesseract.image_to_data(
-                prepare(image), lang=self.settings.ocr_lang, output_type=pytesseract.Output.DICT
-            )
-        except (pytesseract.TesseractNotFoundError, OSError) as e:
-            raise OcrUnavailableError("tesseract is not installed") from e
-        return _from_data(data)
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "in.png"
+            out = Path(folder) / "out"
+            image.save(source)
+            try:
+                pytesseract.pytesseract.run_tesseract(
+                    str(source),
+                    str(out),
+                    extension="txt",
+                    lang=self.settings.ocr_lang,
+                    config=f"{psm} -c tessedit_create_tsv=1",
+                    timeout=self.settings.ocr_timeout_seconds,
+                )
+            except (pytesseract.TesseractNotFoundError, OSError) as e:
+                raise OcrUnavailableError("tesseract is not installed") from e
+            except RuntimeError:  # 시간 초과: 이 그림은 못 읽은 것으로 본다
+                logger.info("tesseract timed out")
+                return OcrResult("", None)
+            text = out.with_suffix(".txt").read_text(encoding="utf-8")
+            tsv = out.with_suffix(".tsv").read_text(encoding="utf-8")
+        return OcrResult(clean_text(text), *word_confidence(tsv))
 
 
-def _from_data(data: dict[str, list]) -> OcrResult:
-    """image_to_data 결과를 줄 단위 글자와 평균 신뢰도로 묶는다."""
-    lines: dict[tuple[int, int, int], list[str]] = {}
-    confidences: list[float] = []
-    for i, word in enumerate(data["text"]):
-        word = str(word).strip()
-        conf = float(data["conf"][i])
-        if not word or conf < 0:
-            continue
-        key = (int(data["block_num"][i]), int(data["par_num"][i]), int(data["line_num"][i]))
-        lines.setdefault(key, []).append(word)
-        confidences.append(conf)
-    text = "\n".join(" ".join(words) for _, words in sorted(lines.items()))
-    confidence = sum(confidences) / len(confidences) if confidences else None
-    return OcrResult(text=normalize_text(text), confidence=confidence)
+def clean_text(text: str) -> str:
+    """빈 줄과 겹친 공백을 정리한다 (Tesseract는 덩어리 사이에 빈 줄을 넣는다)."""
+    lines = (" ".join(line.split()) for line in normalize_text(text).split("\n"))
+    return "\n".join(line for line in lines if line)
+
+
+def word_confidence(tsv: str) -> tuple[float | None, float]:
+    """tsv에서 단어 평균 신뢰도와 자신 없는 단어 비율을 계산한다."""
+    rows = [line.split("\t") for line in tsv.splitlines() if line]
+    if not rows:
+        return None, 0.0
+    header = rows[0]
+    conf_at, text_at = header.index("conf"), header.index("text")
+    confidences = [
+        float(row[conf_at])
+        for row in rows[1:]
+        if len(row) > text_at and row[text_at].strip() and float(row[conf_at]) >= 0
+    ]
+    if not confidences:
+        return None, 0.0
+    weak = sum(c < _WEAK_WORD for c in confidences) / len(confidences)
+    return sum(confidences) / len(confidences), weak
 
 
 def _is_known_char(ch: str) -> bool:
@@ -127,6 +175,8 @@ def doubt_reason(
         return "large image with little text"
     if result.confidence is not None and result.confidence < settings.ocr_min_confidence:
         return f"low confidence {result.confidence:.0f}"
+    if result.weak_ratio > settings.ocr_max_weak_ratio:
+        return f"many unsure words {result.weak_ratio:.0%}"
     if garbage_ratio(result.text) > settings.ocr_max_garbage_ratio:
         return "many unknown symbols"
     return None
