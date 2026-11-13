@@ -21,7 +21,10 @@ class Settings(BaseSettings):
     gcs_signer_service_account: str = ""
     cors_origins: Annotated[list[str], NoDecode] = []
     # 원본 자료 보관 폴더 (로컬 개발용 보관소, Git 제외). GCS 대신 쓴다
-    materials_dir: Path = Path(__file__).resolve().parents[4] / ".local-storage" / "materials"
+    # 저장소 루트 기준(.env와 같은 방식). 컨테이너처럼 폴더가 얕아도 깨지지 않는다
+    materials_dir: Path = (
+        Path(__file__).resolve().parents[2] / "../../.local-storage/materials"
+    ).resolve()
 
     @field_validator("cors_origins", mode="before")
     @classmethod
