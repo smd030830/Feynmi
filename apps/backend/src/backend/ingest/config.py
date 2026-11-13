@@ -1,0 +1,30 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from backend.config import Settings
+
+
+class OCRSettings(BaseSettings):
+    """이미지 글자 인식(OCR) 설정. 기본은 Tesseract, 결과가 애매할 때만 AI로 다시 읽는다."""
+
+    model_config = SettingsConfigDict(
+        env_file=Settings.model_config.get("env_file"), extra="ignore"
+    )
+
+    # Tesseract 실행 파일 경로. 비우면 PATH에서 찾는다
+    # (Windows 예: C:\Program Files\Tesseract-OCR\tesseract.exe)
+    tesseract_cmd: str | None = None
+    ocr_lang: str = "kor+eng"
+    # 이보다 작은 그림(가로나 세로, 픽셀)은 아이콘·장식으로 보고 읽지 않는다
+    ocr_min_image_side: int = Field(default=100, ge=1)
+    # 자료 하나에서 OCR할 그림 수 상한 (분석 데드라인 30분 보호, architecture 7.1)
+    ocr_max_images: int = Field(default=300, ge=0)
+    # "애매함" 기준: 단어 평균 신뢰도가 이보다 낮으면 애매
+    ocr_min_confidence: float = Field(default=60.0, ge=0, le=100)
+    # "애매함" 기준: 큰 그림(이 면적 이상)인데 글자가 이보다 적으면 애매
+    ocr_large_image_pixels: int = Field(default=500_000, ge=1)
+    ocr_min_chars_for_large: int = Field(default=10, ge=0)
+    # "애매함" 기준: 알 수 없는 기호 비율이 이보다 높으면 애매
+    ocr_max_garbage_ratio: float = Field(default=0.3, ge=0, le=1)
+    # 자료 하나에서 AI로 다시 읽는 횟수 상한 (비용 보호). 0이면 AI 보조를 쓰지 않는다
+    ocr_ai_max_calls: int = Field(default=20, ge=0)

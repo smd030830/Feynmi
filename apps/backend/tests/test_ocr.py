@@ -1,0 +1,151 @@
+"""OCR 엔진과 '애매함' 판단. 진짜 Tesseract 검사는 설치된 PC/CI에서만 돈다."""
+
+from pathlib import Path
+
+import pytest
+from PIL import Image, ImageDraw, ImageFont
+
+from backend.ingest.config import OCRSettings
+from backend.ingest.ocr import (
+    OcrResult,
+    OcrUnavailableError,
+    TesseractEngine,
+    _from_data,
+    doubt_reason,
+    garbage_ratio,
+    is_ocr_target,
+    prepare,
+)
+
+# 기준값은 기본값으로 고정하고, Tesseract 경로만 .env(TESSERACT_CMD)를 따른다
+SETTINGS = OCRSettings(_env_file=None, tesseract_cmd=OCRSettings().tesseract_cmd)  # pyright: ignore[reportCallIssue]
+
+
+def tesseract_ready() -> bool:
+    try:
+        TesseractEngine(SETTINGS).check()
+    except OcrUnavailableError:
+        return False
+    return True
+
+
+needs_tesseract = pytest.mark.skipif(not tesseract_ready(), reason="Tesseract 미설치")
+
+_KOREAN_FONTS = [
+    Path("C:/Windows/Fonts/malgun.ttf"),
+    Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+]
+
+
+def text_image(lines: list[str], font_path: Path | None = None) -> Image.Image:
+    font = ImageFont.truetype(str(font_path), 48) if font_path else ImageFont.load_default(size=48)
+    image = Image.new("RGB", (1400, 90 * len(lines) + 60), "white")
+    draw = ImageDraw.Draw(image)
+    for i, line in enumerate(lines):
+        draw.text((40, 30 + 90 * i), line, fill="black", font=font)
+    return image
+
+
+# --- 애매함 판단 (Tesseract 없이 검사) ---
+
+
+def test_clear_result_is_trusted() -> None:
+    result = OcrResult("프로세스는 실행 중인 프로그램이다", confidence=91.0)
+    assert doubt_reason(result, (1200, 800), SETTINGS) is None
+
+
+@pytest.mark.parametrize(
+    ("result", "size", "reason"),
+    [
+        (OcrResult("프로세스", confidence=42.0), (400, 300), "low confidence 42"),
+        (OcrResult("", confidence=None), (1024, 1425), "large image with little text"),
+        (OcrResult("a b", confidence=95.0), (1024, 1425), "large image with little text"),
+        (OcrResult("§¶ª¤ ¦¨ ©®", confidence=88.0), (400, 300), "many unknown symbols"),
+    ],
+)
+def test_doubtful_results(result: OcrResult, size: tuple[int, int], reason: str) -> None:
+    assert doubt_reason(result, size, SETTINGS) == reason
+
+
+def test_small_image_with_no_text_is_not_doubtful() -> None:
+    # 작은 그림에 글자가 없는 건 자연스럽다 (AI를 부를 이유가 없다)
+    assert doubt_reason(OcrResult("", None), (300, 200), SETTINGS) is None
+
+
+def test_thresholds_come_from_settings() -> None:
+    strict = SETTINGS.model_copy(update={"ocr_min_confidence": 95})
+    assert doubt_reason(OcrResult("본문", 91.0), (400, 300), strict) == "low confidence 91"
+
+
+def test_garbage_ratio_counts_korean_and_bullets_as_normal() -> None:
+    assert garbage_ratio("① 프로세스 → 스레드 (CPU 100%)") == 0.0
+    assert garbage_ratio("") == 0.0
+    assert garbage_ratio("ab§¶") == 0.5
+
+
+def test_tiny_images_are_skipped() -> None:
+    assert not is_ocr_target((60, 60), SETTINGS)  # 아이콘
+    assert not is_ocr_target((1200, 40), SETTINGS)  # 가는 선
+    assert is_ocr_target((1024, 1425), SETTINGS)  # 포스터
+
+
+def test_tesseract_words_are_grouped_into_lines() -> None:
+    data = {
+        "text": ["", "운영체제", "3강", "", "프로세스", "~"],
+        "conf": [-1, 90, 80, -1, 70, 10],
+        "block_num": [1, 1, 1, 1, 1, 2],
+        "par_num": [1, 1, 1, 1, 1, 1],
+        "line_num": [0, 1, 1, 2, 2, 1],
+    }
+    result = _from_data(data)
+    assert result.text == "운영체제 3강\n프로세스\n~"
+    assert result.confidence == pytest.approx((90 + 80 + 70 + 10) / 4)
+    assert _from_data({k: [] for k in data}) == OcrResult("", None)
+
+
+def test_prepare_flattens_transparency_and_upscales_small_images() -> None:
+    transparent = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+    prepared = prepare(transparent)
+    assert prepared.mode == "L"
+    assert prepared.size == (400, 200)
+    assert prepared.getpixel((0, 0)) == 255  # 투명 → 흰 배경
+    assert prepare(Image.new("RGB", (1600, 900))).size == (1600, 900)
+
+
+def test_missing_tesseract_is_reported() -> None:
+    engine = TesseractEngine(
+        SETTINGS.model_copy(update={"tesseract_cmd": "C:/없는/경로/tesseract.exe"})
+    )
+    with pytest.raises(OcrUnavailableError):
+        engine.check()
+    with pytest.raises(OcrUnavailableError):
+        engine.read(Image.new("RGB", (200, 200), "white"))
+
+
+# --- 진짜 Tesseract ---
+
+
+@needs_tesseract
+def test_tesseract_reads_english() -> None:
+    result = TesseractEngine(SETTINGS).read(text_image(["Process Scheduling 2026"]))
+    assert "Process" in result.text and "2026" in result.text
+    assert result.confidence is not None and result.confidence > 60
+
+
+@needs_tesseract
+@pytest.mark.skipif(
+    not any(p.exists() for p in _KOREAN_FONTS), reason="한글 글꼴 없음 (테스트 그림을 못 만듦)"
+)
+def test_tesseract_reads_korean() -> None:
+    font = next(p for p in _KOREAN_FONTS if p.exists())
+    image = text_image(["운영체제 프로세스와 스레드", "선점형 스케줄링"], font)
+    result = TesseractEngine(SETTINGS).read(image)
+    assert "프로세스" in result.text and "스케줄링" in result.text
+    assert doubt_reason(result, image.size, SETTINGS) is None
+
+
+@needs_tesseract
+def test_blank_image_reads_nothing() -> None:
+    result = TesseractEngine(SETTINGS).read(Image.new("RGB", (800, 600), "white"))
+    assert result.text == ""
