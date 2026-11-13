@@ -91,7 +91,7 @@ export function ProjectDetailView() {
         </span>
       </nav>
 
-      <header className="flex items-center gap-6 rounded-card border border-line bg-surface p-7">
+      <header className="flex items-center gap-6 rounded-card border border-line bg-surface p-7 max-[600px]:flex-wrap max-[600px]:gap-4 max-[600px]:p-5">
         <ProjectTile name={project.name} color={project.color} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="text-eyebrow font-extrabold uppercase text-primary-strong">
@@ -105,7 +105,7 @@ export function ProjectDetailView() {
             <StateDistributionBar counts={project.state_counts} />
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-center gap-4">
+        <div className="flex shrink-0 flex-col items-center gap-4 max-[600px]:w-full max-[600px]:flex-row max-[600px]:justify-between">
           <ProgressRing score={project.score} />
           {/* 취약 개념 1순위로 새 세션 (FM-030). 개념이 없으면 비활성 */}
           <Button disabled>학습 시작하기</Button>
@@ -113,7 +113,7 @@ export function ProjectDetailView() {
       </header>
 
       <div>
-        <div role="tablist" aria-label="프로젝트 탭" className="flex gap-[25px] border-b border-line">
+        <div role="tablist" aria-label="프로젝트 탭" className="flex gap-[25px] border-b border-line max-[600px]:gap-4 max-[600px]:overflow-x-auto">
           {tabs.map((t) => {
             const active = t.key === tab;
             return (
@@ -162,7 +162,7 @@ export function ProjectDetailView() {
           )}
           {tab === "materials" && (
             <section aria-labelledby="materials-title" className="flex flex-col gap-4">
-              <div className="flex items-end justify-between">
+              <div className="flex items-end justify-between max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-3">
                 <div>
                   <h2 id="materials-title" className="text-heading font-bold text-text">
                     학습자료

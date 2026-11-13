@@ -28,7 +28,7 @@ export default function HomePage() {
   return (
     <div className="flex flex-col gap-9">
       {/* 인사 줄 */}
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-3">
         <div>
           <GreetingEyebrow />
           <h1 className="mt-1 text-title-1 font-bold text-text">안녕하세요, <CurrentNickname />님</h1>
@@ -38,7 +38,7 @@ export default function HomePage() {
       </div>
 
       {/* 히어로: 취약 개념이 없으므로 새 프로젝트 만들기 (FR-4.3) */}
-      <section className="relative flex items-center justify-between overflow-hidden rounded-hero border border-[#e5e7ff] bg-[linear-gradient(125deg,#eef2ff_0%,#f4f1ff_53%,#effaff_100%)] px-12 py-[38px]">
+      <section className="relative flex items-center justify-between overflow-hidden rounded-hero border border-[#e5e7ff] bg-[linear-gradient(125deg,#eef2ff_0%,#f4f1ff_53%,#effaff_100%)] px-12 py-[38px] max-[1024px]:px-8 max-[600px]:px-6">
         <div className="absolute -right-16 -top-20 size-64 rounded-full bg-white/50" aria-hidden />
         <div className="relative">
           <p className="text-eyebrow font-extrabold uppercase text-primary-strong">
@@ -51,7 +51,7 @@ export default function HomePage() {
           </h2>
           <NewProjectButton className="mt-6">새 프로젝트 만들기</NewProjectButton>
         </div>
-        <ol className="relative mr-6 flex items-center gap-3" aria-label="학습 순환">
+        <ol className="relative mr-6 flex items-center gap-3 max-[900px]:hidden" aria-label="학습 순환">
           {cycle.map((step, index) => (
             <li key={step.label} className="flex items-center gap-3">
               <div className="flex flex-col items-center gap-2">
@@ -78,7 +78,7 @@ export default function HomePage() {
           </h2>
           <span className="text-caption text-subtle">지난 30일 기준</span>
         </div>
-        <div className="grid grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-3 gap-3.5 max-[600px]:grid-cols-1">
           {stats.map((stat) => (
             <div
               key={stat.label}

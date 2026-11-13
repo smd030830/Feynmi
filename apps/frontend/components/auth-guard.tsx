@@ -44,7 +44,7 @@ export function GuestOnly({ children }: { children: ReactNode }) {
 export function AccountLoadError() {
   const { retry } = useAccount();
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-canvas px-10 text-center">
+    <main className="auth-card-page flex min-h-[var(--viewport-height)] flex-col items-center justify-center gap-4 bg-canvas px-10 text-center">
       <p className="text-body-lg text-muted">계정 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.</p>
       <div className="flex gap-2">
         <Button onClick={retry}>다시 시도</Button>

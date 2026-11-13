@@ -3,6 +3,7 @@
 import { signOut } from "firebase/auth";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createContext, use, useEffect, useState, type ReactNode } from "react";
 import { useMe } from "@/components/auth-guard";
 import { Icon, type IconName } from "@/components/icon";
 import { Logo } from "@/components/logo";
@@ -16,12 +17,52 @@ const nav: { href: string; label: string; icon: IconName }[] = [
   { href: "/settings", label: "설정", icon: "settings" },
 ];
 
+// 모바일(좁은 화면)에서 사이드바를 드로어로 여닫는 상태. 넓은 화면에서는 쓰이지 않는다.
+const MobileNavContext = createContext<{ open: boolean; setOpen: (open: boolean) => void } | null>(null);
+
+export function MobileNavProvider({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+
+  // Esc로 닫기
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return <MobileNavContext value={{ open, setOpen }}>{children}</MobileNavContext>;
+}
+
+function useMobileNav() {
+  const ctx = use(MobileNavContext);
+  if (!ctx) throw new Error("MobileNavProvider 안에서만 쓸 수 있습니다.");
+  return ctx;
+}
+
+// 상단 바의 메뉴 버튼. 좁은 화면에서만 보인다 (globals.css .app-menu-btn)
+export function MobileMenuButton() {
+  const { open, setOpen } = useMobileNav();
+  return (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      aria-label="메뉴 열기"
+      aria-expanded={open}
+      className="app-menu-btn rounded-lg text-muted"
+    >
+      <Icon name="menu" size={22} />
+    </button>
+  );
+}
+
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 
 export function Sidebar() {
   const pathname = usePathname();
   const me = useMe();
   const nickname = me.nickname ?? "";
+  const { open, setOpen } = useMobileNav();
 
   function logout() {
     // 로그아웃되면 AuthGuard가 /login으로 보낸다
@@ -29,7 +70,20 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="sticky top-0 flex h-screen w-[236px] shrink-0 flex-col border-r border-line bg-surface px-5 pb-6 pt-[30px]">
+    <>
+    <div className="app-backdrop" data-open={open} onClick={() => setOpen(false)} aria-hidden />
+    <aside
+      data-open={open}
+      className="app-sidebar sticky top-0 flex h-screen w-[236px] shrink-0 flex-col border-r border-line bg-surface px-5 pb-6 pt-[30px]"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        aria-label="메뉴 닫기"
+        className="app-menu-close rounded-lg text-subtle"
+      >
+        <Icon name="close" size={22} />
+      </button>
       <div className="px-1">
         <Logo />
       </div>
@@ -42,6 +96,7 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
+              onClick={() => setOpen(false)}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-body font-semibold transition duration-200 ${
                 active
                   ? "bg-primary-soft text-primary-strong"
@@ -89,5 +144,6 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

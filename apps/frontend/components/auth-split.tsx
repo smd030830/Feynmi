@@ -12,10 +12,16 @@ const flow: { icon: IconName; label: string; tone: string }[] = [
 // design-system 9.2: 왼쪽 브랜드 패널 + 오른쪽 폼. 로그인과 회원가입이 함께 쓴다.
 export function AuthSplit({ children }: { children: ReactNode }) {
   return (
-    <main className="grid min-h-screen grid-cols-[56fr_44fr]">
+    <main className="auth-split grid min-h-[var(--viewport-height)] grid-cols-[56fr_44fr]">
       <BrandPanel />
-      <section className="flex items-center justify-center bg-surface px-10 py-16">
-        <div className="w-full max-w-[390px]">{children}</div>
+      <section className="auth-form-side flex items-center justify-center bg-surface px-10 py-16">
+        <div className="w-full max-w-[390px]">
+          {/* 좁은 화면에서는 브랜드 패널을 숨기므로 로고를 폼 위에 둔다 */}
+          <div className="auth-mini-logo">
+            <Logo />
+          </div>
+          {children}
+        </div>
       </section>
     </main>
   );
@@ -23,7 +29,7 @@ export function AuthSplit({ children }: { children: ReactNode }) {
 
 function BrandPanel() {
   return (
-    <section className="relative flex flex-col justify-between overflow-hidden bg-[linear-gradient(145deg,#f2f5ff_0%,#f8f5ff_56%,#f0fbff_100%)] px-16 py-14">
+    <section className="auth-brand relative flex flex-col justify-between overflow-hidden bg-[linear-gradient(145deg,#f2f5ff_0%,#f8f5ff_56%,#f0fbff_100%)] px-16 py-14">
       {/* 장식 원 */}
       <span
         aria-hidden
