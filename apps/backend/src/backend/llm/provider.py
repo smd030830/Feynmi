@@ -168,7 +168,14 @@ class OpenAIProvider:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_image", "image_url": f"data:{mime_type};base64,{encoded}"}
+                        # 공식 예시처럼 이미지 옆에 짧은 글 지시를 함께 보낸다
+                        {"type": "input_text", "text": "이 이미지의 글자를 옮겨 적어라."},
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{mime_type};base64,{encoded}",
+                            # auto는 저해상도(512px)를 고를 수 있어 작은 글자가 뭉개진다
+                            "detail": "high",
+                        },
                     ],
                 }
             ],

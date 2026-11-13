@@ -326,8 +326,14 @@ async def test_image_text_sends_png_and_returns_text() -> None:
     assert payload["model"] == "test-vision"
     assert "reasoning" not in payload  # effort를 비우면 보내지 않는다
     assert payload["store"] is False
-    [image] = payload["input"][0]["content"]
-    assert image == {"type": "input_image", "image_url": "data:image/png;base64,iVBORw=="}
+    # OpenAI 이미지 입력 형식 (공식 문서: input_text + input_image, data URL, detail)
+    [prompt, image] = payload["input"][0]["content"]
+    assert prompt["type"] == "input_text" and prompt["text"]
+    assert image == {
+        "type": "input_image",
+        "image_url": "data:image/png;base64,iVBORw==",
+        "detail": "high",  # 작은 글자를 읽으려면 고해상도
+    }
     assert "추측" in payload["instructions"]
 
 
