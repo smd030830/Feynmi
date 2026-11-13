@@ -21,6 +21,9 @@ class LLMSettings(BaseSettings):
     llm_assessment_model: NonEmpty
     llm_assessment_effort: NonEmpty
     llm_embedding_model: NonEmpty
+    # 애매한 OCR 결과를 다시 읽는 멀티모달 모델. 비우면 AI 보조 OCR을 쓰지 않는다
+    llm_image_text_model: str | None = None
+    llm_image_text_effort: str | None = None
     llm_max_retries: int = Field(default=2, ge=0, le=10)
     llm_timeout_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)
 

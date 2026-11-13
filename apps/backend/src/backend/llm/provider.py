@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import base64
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -12,7 +13,7 @@ from typing import Any, Protocol
 
 import httpx
 import tiktoken
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from backend.db.models import EMBEDDING_DIMENSIONS
 from backend.llm.config import LLMSettings
@@ -31,6 +32,19 @@ class _InvalidOutput(ValueError):
     pass
 
 
+class ImageText(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+
+
+IMAGE_TEXT_INSTRUCTIONS = (
+    "학습자료 속 이미지에 보이는 글자를 그대로 옮겨 적는다. "
+    "해석, 요약, 번역, 보충 설명을 하지 않고 이미지에 없는 내용을 추측해 넣지 않는다. "
+    "읽는 순서대로 줄바꿈을 유지하고, 표는 한 행을 한 줄로 하여 칸을 ' | '로 구분한다. "
+    "글자가 없거나 읽을 수 없으면 text를 빈 문자열로 둔다."
+)
+
+
 class LLMProvider(Protocol):
     async def generate_structured[T: BaseModel](
         self,
@@ -43,6 +57,8 @@ class LLMProvider(Protocol):
     ) -> T: ...
 
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+    async def read_image_text(self, image: bytes, mime_type: str) -> str: ...
 
 
 def validate_embedding(value: object) -> list[float]:
@@ -126,9 +142,49 @@ class OpenAIProvider:
         schema: type[T],
         validate: Callable[[T], None] | None = None,
     ) -> T:
-        model = getattr(self.settings, f"llm_{task.value}_model")
-        effort = getattr(self.settings, f"llm_{task.value}_effort")
+        return await self._structured(
+            model=getattr(self.settings, f"llm_{task.value}_model"),
+            effort=getattr(self.settings, f"llm_{task.value}_effort"),
+            system=system,
+            input=input,
+            schema=schema,
+            validate=validate,
+        )
 
+    async def read_image_text(self, image: bytes, mime_type: str) -> str:
+        """이미지 속 글자를 옮겨 적는다 (AI 보조 OCR). 모델이 설정되지 않았으면 LLMError."""
+        model = self.settings.llm_image_text_model
+        if not model or not model.strip():
+            raise LLMError("image text model is not configured")
+        if mime_type not in ("image/png", "image/jpeg"):
+            raise ValueError("image must be png or jpeg")
+        encoded = base64.b64encode(image).decode("ascii")
+        result = await self._structured(
+            model=model,
+            effort=self.settings.llm_image_text_effort,
+            system=IMAGE_TEXT_INSTRUCTIONS,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_image", "image_url": f"data:{mime_type};base64,{encoded}"}
+                    ],
+                }
+            ],
+            schema=ImageText,
+        )
+        return result.text.strip()
+
+    async def _structured[T: BaseModel](
+        self,
+        *,
+        model: str,
+        effort: str | None,
+        system: str,
+        input: str | list[dict[str, Any]],
+        schema: type[T],
+        validate: Callable[[T], None] | None = None,
+    ) -> T:
         def parse(body: Any) -> T:
             if body.get("status") != "completed" or body.get("error"):
                 raise _InvalidOutput("response did not complete")
@@ -148,25 +204,23 @@ class OpenAIProvider:
                 validate(result)
             return result
 
-        return await self._request(
-            "responses",
-            {
-                "model": model,
-                "reasoning": {"effort": effort},
-                "instructions": system,
-                "input": input,
-                "store": False,
-                "text": {
-                    "format": {
-                        "type": "json_schema",
-                        "name": schema.__name__,
-                        "strict": True,
-                        "schema": _strict_schema(schema.model_json_schema()),
-                    }
-                },
+        payload: dict[str, Any] = {
+            "model": model,
+            "instructions": system,
+            "input": input,
+            "store": False,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema.__name__,
+                    "strict": True,
+                    "schema": _strict_schema(schema.model_json_schema()),
+                }
             },
-            parse,
-        )
+        }
+        if effort:
+            payload["reasoning"] = {"effort": effort}
+        return await self._request("responses", payload, parse)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
