@@ -32,6 +32,28 @@ export type Project = {
   created_at: string;
 };
 
+export type MaterialStatus =
+  | "pending_upload"
+  | "queued"
+  | "extracting"
+  | "generating_concepts"
+  | "ready"
+  | "failed";
+
+export type Material = {
+  id: string;
+  title: string;
+  file_type: "pdf" | "pptx" | "png" | "jpg";
+  size_bytes: number;
+  page_count: number | null;
+  status: MaterialStatus;
+  failure_code: string | null;
+  chunk_count: number; // DB에 임베딩까지 저장된 조각 수
+  created_at: string;
+};
+
+export type MaterialPage = { number: number; text: string };
+
 export type ProjectList = {
   items: Project[];
   next_color: ProjectColor;
@@ -62,7 +84,26 @@ const MESSAGES: Record<string, string> = {
   llm_failed: "AI 분석을 완료하지 못했어요. 작성한 답변은 보관되며 다시 보낼 수 있어요.",
   account_deleting: "회원 탈퇴를 처리하고 있어요. 잠시 후 다시 확인해주세요.",
   cloud_unavailable: "계정 서비스를 연결하지 못했어요. 잠시 후 다시 시도해주세요.",
+  consent_required: "자료를 올리기 전에 외부 AI 전송 안내에 동의해주세요.",
+  unsupported_format: "지원하지 않는 형식입니다. PDF, PPTX, PNG, JPG만 올릴 수 있어요.",
+  file_too_large: "파일이 너무 큽니다. 파일당 50MB까지 올릴 수 있어요.",
+  empty_file: "빈 파일입니다. 내용이 있는 파일을 올려주세요.",
 };
+
+// 분석 실패 사유 (materials.failure_code, PRD FR-1.4, FR-1.7)
+const FAILURE_MESSAGES: Record<string, string> = {
+  unsupported_format: "지원하지 않는 형식이에요. 파일 내용이 확장자와 다를 수 있어요.",
+  file_too_large: "파일이나 그림이 너무 커요.",
+  too_many_pages: "쪽수가 너무 많아요. 300쪽(슬라이드)까지 분석할 수 있어요.",
+  no_extractable_text: "글자를 찾지 못했어요. 글자가 보이는 자료인지 확인해주세요.",
+  corrupted_file: "파일을 열 수 없어요. 손상되었거나 암호가 걸린 파일일 수 있어요.",
+  llm_failed: "AI 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
+  internal_error: "분석 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
+};
+
+export function failureMessage(code: string | null) {
+  return FAILURE_MESSAGES[code ?? ""] ?? FAILURE_MESSAGES.internal_error;
+}
 
 export function apiErrorMessage(error: unknown) {
   const code = error instanceof ApiError ? error.code : "";
@@ -207,4 +248,31 @@ export function uploadAvatar(file: File) {
   return apiFetch<{ avatar_url: string }>("/me/avatar", {
     method: "POST", headers: { "Content-Type": file.type }, body: file,
   });
+}
+
+export function giveAiConsent() {
+  return apiFetch<Me>("/me/ai-consent", { method: "POST" });
+}
+
+export function listMaterials(projectId: string) {
+  return apiFetch<{ items: Material[] }>(`/projects/${encodeURIComponent(projectId)}/materials`);
+}
+
+export function uploadMaterial(projectId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch<Material>(`/projects/${encodeURIComponent(projectId)}/materials`, {
+    method: "POST",
+    body,
+  });
+}
+
+export function retryMaterial(materialId: string) {
+  return apiFetch<Material>(`/materials/${encodeURIComponent(materialId)}/retry`, {
+    method: "POST",
+  });
+}
+
+export function getMaterialPages(materialId: string) {
+  return apiFetch<{ pages: MaterialPage[] }>(`/materials/${encodeURIComponent(materialId)}/pages`);
 }

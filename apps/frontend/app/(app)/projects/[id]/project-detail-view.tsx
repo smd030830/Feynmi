@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
+import { MaterialsPanel } from "@/components/materials-panel";
 import { ProgressRing } from "@/components/progress-ring";
 import { ProjectTile } from "@/components/project-tile";
 import { StateDistributionBar } from "@/components/state-distribution-bar";
@@ -57,6 +58,17 @@ export function ProjectDetailView() {
     try { const session = await startSession(conceptId); setStarting(false); router.push(`/sessions/${session.id}`); }
     catch (err) { setStartError(apiErrorMessage(err)); setStarting(false); }
   }
+
+  // 자료를 올리면 탭과 머리글의 자료 수를 맞춘다
+  const setMaterialCount = useCallback(
+    (count: number) =>
+      setLoaded((prev) =>
+        prev?.project && prev.project.material_count !== count
+          ? { ...prev, project: { ...prev.project, material_count: count } }
+          : prev,
+      ),
+    [],
+  );
 
   if (current?.error) {
     const notFound = current.error instanceof ApiError && current.error.code === "not_found";
@@ -173,29 +185,11 @@ export function ProjectDetailView() {
             </EmptyState>
           )}
           {tab === "materials" && (
-            <section aria-labelledby="materials-title" className="flex flex-col gap-4">
-              <div className="flex items-end justify-between max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-3">
-                <div>
-                  <h2 id="materials-title" className="text-heading font-bold text-text">
-                    학습자료
-                  </h2>
-                  <p className="text-caption text-subtle">
-                    PDF · PPTX 자료를 올리면 개념을 분석해 학습을 시작할 수 있어요.
-                  </p>
-                </div>
-                {/* 업로드는 FM-020에서 연결한다 */}
-                <Button disabled>학습자료 업로드</Button>
-              </div>
-              <EmptyState
-                icon="file"
-                title="아직 올린 자료가 없어요"
-                description="PDF · PPTX, 파일당 50MB, 300쪽/슬라이드까지 올릴 수 있어요."
-              />
-              <p className="flex items-center gap-2 text-caption text-subtle">
-                <Icon name="shield" size={16} className="text-placeholder" />
-                업로드한 자료는 {project.name} 프로젝트의 개념 분석과 질문 생성에만 사용됩니다.
-              </p>
-            </section>
+            <MaterialsPanel
+              projectId={project.id}
+              projectName={project.name}
+              onCountChange={setMaterialCount}
+            />
           )}
           {tab === "records" && (
             <EmptyState
