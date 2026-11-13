@@ -19,6 +19,7 @@ dependencies = [
     "pillow>=13.0.0",
     "pydantic-settings>=2.16.1",
     "pypdf>=7.0.1",
+    "pypdfium2>=5.15.2",
     "pytesseract>=0.3.13",
     "python-pptx>=1.0.2",
     "requests>=2.34.2",

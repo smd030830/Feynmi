@@ -1,12 +1,26 @@
 """자료 파서 공통 규칙: 실패 코드, 업로드 상한, 텍스트 정리 (PRD FR-1.2, FR-1.4)."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+
+from PIL import Image
 
 from backend.domain.enums import FailureCode
 from backend.rag.chunking import PageText
 
 MAX_FILE_BYTES = 50 * 1024 * 1024  # PRD FR-1.2: 파일당 50MB
 MAX_PAGES = 300  # PRD FR-1.2: PDF 300쪽 / PPTX 300슬라이드
+
+
+@dataclass(frozen=True)
+class RawPage:
+    """OCR 전의 한 쪽: 뽑힌 글자와, 필요할 때 그림을 꺼내 주는 함수."""
+
+    number: int
+    text: str
+    images: Callable[[], Iterable[Image.Image]]
+    # 업로드한 이미지 파일 자체라면 크기와 상관없이 읽는다
+    whole_image: bool = False
 
 
 class IngestError(Exception):

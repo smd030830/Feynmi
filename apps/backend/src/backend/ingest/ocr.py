@@ -175,8 +175,14 @@ class HybridOcr:
         self.settings = settings
         self.ai = ai
         self.ai_calls = 0
+        self.images_read = 0
+
+    def has_budget(self) -> bool:
+        """자료 하나에서 OCR할 그림 수 상한(`ocr_max_images`)이 남았는지."""
+        return self.images_read < self.settings.ocr_max_images
 
     async def read(self, image: Image.Image) -> OcrOutcome:
+        self.images_read += 1
         result = await asyncio.to_thread(self.engine.read, image)
         doubt = doubt_reason(result, image.size, self.settings)
         fallback = OcrOutcome(result.text, "tesseract", doubt)
