@@ -256,12 +256,13 @@ function MaterialRow({
   const working = IN_PROGRESS.includes(m.status);
   const badge =
     m.status === "ready"
-      ? "bg-[#ecfdf5] text-[#047857]"
+      ? "bg-success-soft text-success"
       : m.status === "failed"
         ? "bg-danger-soft text-danger"
         : "bg-primary-soft text-primary-strong";
   return (
     <li className="flex items-center gap-4 px-5 py-4">
+      {/* design-system 2장 팔레트: #f1f5f9 = 비활성 칩 (탭 개수 배지와 같은 값) */}
       <span className="flex size-10 shrink-0 items-center justify-center rounded-[11px] bg-[#f1f5f9] text-micro font-bold uppercase text-muted">
         {m.file_type}
       </span>
@@ -279,7 +280,8 @@ function MaterialRow({
         )}
       </div>
       <span
-        className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-micro font-bold ${badge}`}
+        // design-system 8.2 Badge: caption 600, 여백 4px 8px, 모서리 99px, 의미색 글자 + 옅은 배경
+        className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-caption font-semibold ${badge}`}
         aria-live="polite"
       >
         {working && <span className="size-1.5 animate-pulse rounded-full bg-current" />}
