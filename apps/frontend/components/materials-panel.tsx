@@ -133,7 +133,8 @@ export function MaterialsPanel({
 
   return (
     <section aria-labelledby="materials-title" className="flex flex-col gap-4">
-      <div className="flex items-end justify-between">
+      {/* 좁은 화면(600px 이하)에서는 제목과 업로드 버튼을 세로로 쌓는다 (팀 반응형 규칙과 같은 값) */}
+      <div className="flex items-end justify-between max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-3">
         <div>
           <h2 id="materials-title" className="text-heading font-bold text-text">
             학습자료
@@ -261,7 +262,8 @@ function MaterialRow({
         ? "bg-danger-soft text-danger"
         : "bg-primary-soft text-primary-strong";
   return (
-    <li className="flex items-center gap-4 px-5 py-4">
+    // 좁은 화면에서는 배지·버튼이 다음 줄로 내려간다
+    <li className="flex items-center gap-4 px-5 py-4 max-[600px]:flex-wrap max-[600px]:gap-3 max-[600px]:px-4">
       {/* design-system 2장 팔레트: #f1f5f9 = 비활성 칩 (탭 개수 배지와 같은 값) */}
       <span className="flex size-10 shrink-0 items-center justify-center rounded-[11px] bg-[#f1f5f9] text-micro font-bold uppercase text-muted">
         {m.file_type}
