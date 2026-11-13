@@ -208,3 +208,30 @@ def test_unreadable_embedded_image_is_skipped() -> None:
 def test_make_ocr_returns_none_without_tesseract() -> None:
     missing = SETTINGS.model_copy(update={"tesseract_cmd": "C:/없는/경로/tesseract.exe"})
     assert make_ocr(settings=missing) is None
+
+
+async def test_parsing_does_not_block_other_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """큰 자료를 읽는 동안에도 서버가 다른 요청(목록 새로고침 등)에 답할 수 있어야 한다."""
+    import asyncio
+    import time
+
+    import backend.ingest as ingest
+
+    original = ingest._raw_pages
+
+    def slow_raw_pages(data: bytes, file_type: str):  # noqa: ANN202
+        time.sleep(0.5)  # 무거운 파싱 흉내 (작업 줄을 막는 동기 작업)
+        return original(data, file_type)
+
+    monkeypatch.setattr(ingest, "_raw_pages", slow_raw_pages)
+    first_tick: float | None = None
+    started = time.perf_counter()
+
+    async def other_requests() -> None:
+        nonlocal first_tick
+        await asyncio.sleep(0.05)
+        first_tick = time.perf_counter() - started
+
+    await asyncio.gather(read_material(make_pdf(["본문"]), "pdf", None), other_requests())
+    # 파싱이 주 작업 줄을 막았다면 다른 요청은 0.5초 뒤에야 처리됐을 것이다
+    assert first_tick is not None and first_tick < 0.3

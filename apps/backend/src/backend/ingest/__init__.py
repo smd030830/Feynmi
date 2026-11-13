@@ -5,7 +5,10 @@
 - `read_material`: 그림 속 글자까지 OCR로 읽는다 (PNG/JPG, 스캔 PDF, PDF·PPTX 속 그림).
 """
 
+import asyncio
 import logging
+
+from PIL import Image
 
 from backend.domain.enums import FailureCode, FileType
 from backend.ingest.base import (
@@ -92,6 +95,11 @@ def _raw_pages(data: bytes, file_type: str) -> list[RawPage]:
             raise IngestError(FailureCode.UNSUPPORTED_FORMAT, f"file type {file_type!r}")
 
 
+def _page_images(raw: RawPage) -> list[Image.Image]:
+    """한 쪽의 그림을 모두 꺼낸다 (쪽 단위로만 메모리에 올린다)."""
+    return list(raw.images())
+
+
 def _is_duplicate(ocr_text: str, page_text: str) -> bool:
     words = [w for w in ocr_text.split() if len(w) >= 2]
     if not words or not page_text:
@@ -106,7 +114,8 @@ async def read_material(data: bytes, file_type: str, ocr: HybridOcr | None) -> l
     `ocr`가 None이면(Tesseract 없음) 그림은 건너뛰고, 이미지 파일은 읽을 수 없어 실패한다.
     반환 길이가 곧 쪽 수(`materials.page_count`)다. 실패하면 IngestError.
     """
-    raw_pages = _raw_pages(data, file_type)
+    # 파싱·쪽 그리기는 CPU 작업이라 별도 작업 줄에서 돌려 서버가 다른 요청을 계속 받게 한다.
+    raw_pages = await asyncio.to_thread(_raw_pages, data, file_type)
     if ocr is None and any(p.whole_image for p in raw_pages):
         raise IngestError(FailureCode.INTERNAL_ERROR, "OCR engine is not available")
 
@@ -114,7 +123,7 @@ async def read_material(data: bytes, file_type: str, ocr: HybridOcr | None) -> l
     for raw in raw_pages:
         parts = [raw.text] if raw.text else []
         if ocr is not None:
-            for image in raw.images():
+            for image in await asyncio.to_thread(_page_images, raw):
                 if not ocr.has_budget():
                     break
                 if not raw.whole_image and not is_ocr_target(image.size, ocr.settings):

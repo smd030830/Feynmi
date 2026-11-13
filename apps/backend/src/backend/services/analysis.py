@@ -5,6 +5,7 @@
 OpenAI 설정이 없으면 임베딩을 건너뛴다(글자 추출까지만 확인하는 로컬 시연).
 """
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Callable
@@ -70,10 +71,10 @@ async def analyze_material(
                     provider = await stack.enter_async_context(openai_provider(llm_settings))
                 image_ai = provider if llm_settings and llm_settings.llm_image_text_model else None
 
-                data = storage.load(material.gcs_path)
+                data = await asyncio.to_thread(storage.load, material.gcs_path)
                 pages = await read_material(data, material.file_type, ocr_factory(image_ai))
                 material.page_count = len(pages)
-                chunks = split_pages(pages)
+                chunks = await asyncio.to_thread(split_pages, pages)
 
                 # 재시도라면 이전 시도의 조각을 지운다 (save_chunks는 중복 저장을 거부한다).
                 await db.execute(delete(Chunk).where(Chunk.material_id == material.id))

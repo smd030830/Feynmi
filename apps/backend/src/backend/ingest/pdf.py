@@ -6,6 +6,7 @@ OCR을 쓸 때는 쪽마다 그림도 내놓는다.
 """
 
 import logging
+import threading
 from collections.abc import Iterator
 from functools import cached_property, partial
 from io import BytesIO
@@ -34,6 +35,8 @@ _HEADER_WINDOW = 1024
 # 스캔 쪽을 그릴 해상도와 긴 변 상한 (A4 300dpi ≈ 2480×3508)
 _RENDER_DPI = 300
 _RENDER_MAX_SIDE = 4000
+# PDFium은 여러 작업 줄에서 동시에 부르면 안 된다 (자료 여러 개를 동시에 분석할 때)
+_PDFIUM_LOCK = threading.Lock()
 
 
 def _open(data: bytes) -> PdfReader:
@@ -73,13 +76,16 @@ class _PdfImages:
 
     def render(self, index: int) -> Iterator[Image.Image]:
         try:
-            page = self.document[index]
-            width, height = page.get_size()
-            scale = min(_RENDER_DPI / 72, _RENDER_MAX_SIDE / max(width, height, 1))
-            # pypdfium2 문서상 scale은 float이다 (기본값 1 때문에 int로 추론됨)
-            yield page.render(scale=scale).to_pil()  # pyright: ignore[reportArgumentType]
+            with _PDFIUM_LOCK:
+                page = self.document[index]
+                width, height = page.get_size()
+                scale = min(_RENDER_DPI / 72, _RENDER_MAX_SIDE / max(width, height, 1))
+                # pypdfium2 문서상 scale은 float이다 (기본값 1 때문에 int로 추론됨)
+                image = page.render(scale=scale).to_pil()  # pyright: ignore[reportArgumentType]
         except Exception:
             logger.info("skip unrenderable PDF page %d", index + 1)
+            return
+        yield image
 
     @staticmethod
     def embedded(page: PageObject, number: int) -> Iterator[Image.Image]:
