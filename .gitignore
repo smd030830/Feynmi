@@ -232,3 +232,6 @@ __marimo__/
 !.env.llm.example
 mise.local.toml
 *.local.toml
+
+# 로컬 개발용 자료 보관소 (원본 학습자료)
+.local-storage/

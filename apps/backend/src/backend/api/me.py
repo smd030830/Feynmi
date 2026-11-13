@@ -102,3 +102,20 @@ async def update_profile(
     user.nickname = body.nickname
     await db.commit()
     return await _me_response(current, cloud)
+
+
+@router.post("/ai-consent")
+async def give_ai_consent(
+    current: Annotated[CurrentUser, Depends(require_verified_email)],
+    db: DbSession,
+    cloud: Annotated[AccountCloud, Depends(get_account_cloud)],
+) -> MeResponse:
+    """첫 업로드 전 "자료가 외부 AI API(OpenAI)로 전송됩니다" 동의 (PRD FR-1.8).
+
+    다시 불러도 처음 동의한 시각을 유지한다.
+    """
+    user = await active_user(db, current.user.id)
+    if user.ai_consent_at is None:
+        user.ai_consent_at = datetime.now(UTC)
+        await db.commit()
+    return await _me_response(current, cloud)
