@@ -17,6 +17,7 @@ from backend.ingest.ocr import (
     doubt_reason,
     garbage_ratio,
     is_ocr_target,
+    odd_token_ratio,
     prepare,
     word_confidence,
 )
@@ -122,6 +123,27 @@ def test_many_unsure_words_are_doubtful() -> None:
     assert doubt_reason(result, (400, 300), SETTINGS) == "many unsure words 50%"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # 진짜 Tesseract가 높은 점수(90)로 내놓은 오답: "문맥 교환(Context Switch)에는 비용이 든다."
+        "프로세스는 실행 단위이다\n문맥 교환(20016×【 5\\/|[1)에는 비용이 든다.",
+        # "선점형: RR, SRTF / 비선점형: FCFS, SJF" 캡처를 줄이 엉켜 읽은 결과 (점수 81)
+        "형\n=\n선점\n> RR, SRTF\n> FCFS, SJF\nof\n=\n비선점",
+    ],
+)
+def test_confident_but_garbled_results_are_doubtful(text: str) -> None:
+    result = OcrResult(text, confidence=88.0, weak_ratio=0.05)
+    assert (doubt_reason(result, (880, 368), SETTINGS) or "").startswith("many odd tokens")
+
+
+def test_bullets_and_normal_symbols_are_not_odd() -> None:
+    text = "① 대회 안내\n- 결과보고서 (필수)\n▶ 금상 : 1팀 ※ 마감 2026. 11. 12.(목) 24:00 / 50%"
+    assert odd_token_ratio(text) == 0.0
+    result = OcrResult(text, confidence=90.0)
+    assert doubt_reason(result, (880, 368), SETTINGS) is None
+
+
 def test_prepare_flattens_transparency_and_upscales_small_images() -> None:
     transparent = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
     prepared = prepare(transparent)
@@ -220,14 +242,24 @@ async def test_large_images_are_shrunk_before_sending_to_ai() -> None:
     assert max(sent.size) == 2048
 
 
-async def test_without_ai_the_tesseract_result_is_kept() -> None:
-    outcome = await HybridOcr(FakeEngine(BLURRY), SETTINGS, None).read(SLIDE_IMAGE)
-    assert outcome == OcrOutcome("프로세 스와", "tesseract", "low confidence 35")
+SHAKY = OcrResult("프로세 스와", confidence=50.0)  # 애매하지만 버릴 정도는 아님
+
+
+async def test_without_ai_a_shaky_tesseract_result_is_kept() -> None:
+    outcome = await HybridOcr(FakeEngine(SHAKY), SETTINGS, None).read(SLIDE_IMAGE)
+    assert outcome == OcrOutcome("프로세 스와", "tesseract", "low confidence 50")
+
+
+async def test_without_ai_a_nearly_all_wrong_result_is_dropped() -> None:
+    # 직인처럼 신뢰도 40 미만이면 쓰레기 글자를 남기지 않는다
+    seal = OcrResult("내민[거906\nHoe\n리그레이여", confidence=35.0)
+    outcome = await HybridOcr(FakeEngine(seal), SETTINGS, None).read(SLIDE_IMAGE)
+    assert outcome == OcrOutcome("", "tesseract", "low confidence 35")
 
 
 @pytest.mark.parametrize("error", [LLMError("down"), ValueError("bad output")])
 async def test_ai_failure_falls_back_to_tesseract(error: Exception) -> None:
-    outcome = await HybridOcr(FakeEngine(BLURRY), SETTINGS, FakeAI(error=error)).read(SLIDE_IMAGE)
+    outcome = await HybridOcr(FakeEngine(SHAKY), SETTINGS, FakeAI(error=error)).read(SLIDE_IMAGE)
     assert (outcome.text, outcome.source) == ("프로세 스와", "tesseract")
 
 

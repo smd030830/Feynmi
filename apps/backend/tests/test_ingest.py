@@ -216,6 +216,14 @@ def test_pptx_slide_limit() -> None:
     assert code_of(error) == FailureCode.TOO_MANY_PAGES
 
 
+def plain_zip() -> bytes:
+    """PowerPoint 본문(ppt/presentation.xml)이 없는 그냥 압축 파일."""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("readme.txt", "hello")
+    return out.getvalue()
+
+
 def docx_like_zip() -> bytes:
     """PowerPoint가 아닌 OOXML 패키지(워드 문서 형태)."""
     out = io.BytesIO()
@@ -244,10 +252,11 @@ def docx_like_zip() -> bytes:
     [
         (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\0" * 64, FailureCode.UNSUPPORTED_FORMAT),
         (docx_like_zip(), FailureCode.UNSUPPORTED_FORMAT),
+        (plain_zip(), FailureCode.UNSUPPORTED_FORMAT),
         (make_pptx(["잘림"])[:200], FailureCode.CORRUPTED_FILE),
         (b"PK\x03\x04" + b"\0" * MAX_FILE_BYTES, FailureCode.FILE_TOO_LARGE),
     ],
-    ids=["legacy-ppt", "docx", "truncated", "too-large"],
+    ids=["legacy-ppt", "docx", "plain-zip", "truncated", "too-large"],
 )
 def test_pptx_failures(data: bytes, expected: FailureCode) -> None:
     with pytest.raises(IngestError) as error:

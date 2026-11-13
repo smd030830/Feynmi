@@ -179,7 +179,33 @@ def doubt_reason(
         return f"many unsure words {result.weak_ratio:.0%}"
     if garbage_ratio(result.text) > settings.ocr_max_garbage_ratio:
         return "many unknown symbols"
+    # 한글 사이 영어(예: "Context Switch" → "5\/|[1)")처럼 점수는 높은데 틀린 경우를 잡는다
+    odd = odd_token_ratio(result.text)
+    if odd > settings.ocr_max_odd_token_ratio:
+        return f"many odd tokens {odd:.0%}"
     return None
+
+
+# 정상 글에는 드문 기호. OCR이 글자를 잘못 읽으면 자주 나온다
+_ODD_SYMBOLS = set("|\\×【】『』「」¦§¤©®™°±¬")
+
+
+# 홀로 떨어져 있으면 이상한 기호. 글머리표(-, •, ①, ▶, ※ 등)는 정상이라 넣지 않는다
+_ODD_ALONE = set("=<>~^`_")
+
+
+def _is_odd_token(token: str) -> bool:
+    if len(token) == 1 and token in _ODD_ALONE:
+        return True
+    return any(ch in _ODD_SYMBOLS or not _is_known_char(ch) for ch in token)
+
+
+def odd_token_ratio(text: str) -> float:
+    """이상한 낱말(드문 기호가 섞였거나 기호 하나뿐인 낱말)의 비율."""
+    tokens = text.split()
+    if not tokens:
+        return 0.0
+    return sum(_is_odd_token(t) for t in tokens) / len(tokens)
 
 
 def is_ocr_target(image_size: tuple[int, int], settings: OCRSettings) -> bool:
@@ -235,7 +261,14 @@ class HybridOcr:
         self.images_read += 1
         result = await asyncio.to_thread(self.engine.read, image)
         doubt = doubt_reason(result, image.size, self.settings)
-        fallback = OcrOutcome(result.text, "tesseract", doubt)
+        kept = result.text
+        if (
+            doubt is not None
+            and result.confidence is not None
+            and result.confidence < self.settings.ocr_drop_below_confidence
+        ):
+            kept = ""  # 직인·무늬처럼 거의 다 틀린 결과는 쓰레기 글자를 남기느니 버린다
+        fallback = OcrOutcome(kept, "tesseract", doubt)
         if doubt is None or self.ai is None or self.ai_calls >= self.settings.ocr_ai_max_calls:
             return fallback
         self.ai_calls += 1

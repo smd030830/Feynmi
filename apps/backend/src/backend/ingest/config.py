@@ -32,5 +32,9 @@ class OCRSettings(BaseSettings):
     ocr_min_chars_for_large: int = Field(default=10, ge=0)
     # "애매함" 기준: 알 수 없는 기호 비율이 이보다 높으면 애매
     ocr_max_garbage_ratio: float = Field(default=0.3, ge=0, le=1)
+    # "애매함" 기준: 이상한 낱말(드문 기호가 섞였거나 기호 하나뿐)의 비율이 이보다 높으면 애매
+    ocr_max_odd_token_ratio: float = Field(default=0.1, ge=0, le=1)
+    # 애매한데 평균 신뢰도가 이보다 낮으면(AI로 다시 읽지 못할 때) 글자를 버린다
+    ocr_drop_below_confidence: float = Field(default=40.0, ge=0, le=100)
     # 자료 하나에서 AI로 다시 읽는 횟수 상한 (비용 보호). 0이면 AI 보조를 쓰지 않는다
     ocr_ai_max_calls: int = Field(default=20, ge=0)

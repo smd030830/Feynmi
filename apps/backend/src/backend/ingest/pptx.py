@@ -4,6 +4,7 @@
 OCR을 쓸 때는 슬라이드의 그림(그룹 안 포함)도 내놓는다. 차트와 발표자 노트는 추출하지 않는다.
 """
 
+import zipfile
 from collections.abc import Iterable, Iterator
 from functools import partial
 from io import BytesIO
@@ -29,6 +30,7 @@ from backend.ingest.image import try_decode
 from backend.rag.chunking import PageText
 
 _ZIP_HEADER = b"PK\x03\x04"  # 구형 .ppt(OLE)는 여기서 걸러진다 (FR-1.1)
+_PRESENTATION_PART = "ppt/presentation.xml"
 
 
 def pptx_raw_pages(data: bytes) -> list[RawPage]:
@@ -36,6 +38,14 @@ def pptx_raw_pages(data: bytes) -> list[RawPage]:
     check_size(data)
     if not data.startswith(_ZIP_HEADER):
         raise IngestError(FailureCode.UNSUPPORTED_FORMAT, "not a PPTX package")
+    # 열리는 ZIP인데 PowerPoint 본문이 없으면 다른 형식(.docx, .xlsx, 일반 압축 파일)이다
+    try:
+        with zipfile.ZipFile(BytesIO(data)) as package:
+            names = set(package.namelist())
+    except zipfile.BadZipFile as exc:
+        raise IngestError(FailureCode.CORRUPTED_FILE, "unreadable PPTX") from exc
+    if _PRESENTATION_PART not in names:
+        raise IngestError(FailureCode.UNSUPPORTED_FORMAT, "not a PowerPoint file")
     try:
         presentation = Presentation(BytesIO(data))
     except ValueError as exc:  # 정상 OOXML이지만 PowerPoint가 아님(예: .docx)
