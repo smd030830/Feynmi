@@ -52,6 +52,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      # OCR 엔진(한국어 포함)과 OCR 테스트용 한글 글꼴
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng fonts-nanum
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
