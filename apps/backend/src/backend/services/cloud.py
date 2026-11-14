@@ -10,6 +10,28 @@ from backend.errors import AppError
 AVATAR_LIMIT = 2 * 1024 * 1024
 
 
+def signed_url(blob: Any, signer_email: str = "", **kwargs: Any) -> str:
+    """V4 Signed URL (10분). 프로필 이미지 읽기와 학습자료 업로드가 함께 쓴다."""
+    # ADC on Cloud Run can sign through IAM without exporting a private key.
+    import google.auth
+    from google.auth import credentials
+    from google.auth.transport.requests import Request
+
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    options: dict[str, Any] = {"credentials": creds}
+    if not isinstance(creds, credentials.Signing):
+        creds.refresh(Request())
+        email = getattr(creds, "service_account_email", None)
+        if not email or email == "default":
+            email = signer_email
+        if not email:
+            raise AppError(503, "cloud_unavailable", "signed URL signer unavailable")
+        options.update(service_account_email=email, access_token=creds.token)
+    return blob.generate_signed_url(
+        version="v4", expiration=timedelta(minutes=10), **options, **kwargs
+    )
+
+
 class AccountCloud(Protocol):
     def check_user(self, token: VerifiedToken) -> None: ...
     def revoke(self, uid: str) -> None: ...
@@ -72,24 +94,7 @@ class GoogleAccountCloud:
         return storage.Client(project=self.project_id).bucket(name)
 
     def _signed(self, blob: Any, **kwargs: Any) -> str:
-        # ADC on Cloud Run can sign through IAM without exporting a private key.
-        import google.auth
-        from google.auth import credentials
-        from google.auth.transport.requests import Request
-
-        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-        options: dict[str, Any] = {"credentials": creds}
-        if not isinstance(creds, credentials.Signing):
-            creds.refresh(Request())
-            email = getattr(creds, "service_account_email", None)
-            if not email or email == "default":
-                email = self.signer_email
-            if not email:
-                raise AppError(503, "cloud_unavailable", "signed URL signer unavailable")
-            options.update(service_account_email=email, access_token=creds.token)
-        return blob.generate_signed_url(
-            version="v4", expiration=timedelta(minutes=10), **options, **kwargs
-        )
+        return signed_url(blob, self.signer_email, **kwargs)
 
     def upload_avatar(self, path: str, content_type: str, data: bytes) -> None:
         self._bucket().blob(path).upload_from_string(

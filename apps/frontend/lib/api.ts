@@ -32,6 +32,27 @@ export type Project = {
   created_at: string;
 };
 
+export type MaterialStatus =
+  | "pending_upload"
+  | "queued"
+  | "extracting"
+  | "generating_concepts"
+  | "ready"
+  | "failed";
+
+export type Material = {
+  id: string;
+  title: string;
+  file_type: "pdf" | "pptx" | "png" | "jpg" | "txt" | "docx" | "hwp" | "hwpx" | "heic";
+  size_bytes: number;
+  page_count: number | null;
+  status: MaterialStatus;
+  failure_code: string | null;
+  chunk_count: number; // DB에 임베딩까지 저장된 조각 수
+  created_at: string;
+};
+
+
 export type ProjectList = {
   items: Project[];
   next_color: ProjectColor;
@@ -62,7 +83,38 @@ const MESSAGES: Record<string, string> = {
   llm_failed: "AI 분석을 완료하지 못했어요. 작성한 답변은 보관되며 다시 보낼 수 있어요.",
   account_deleting: "회원 탈퇴를 처리하고 있어요. 잠시 후 다시 확인해주세요.",
   cloud_unavailable: "계정 서비스를 연결하지 못했어요. 잠시 후 다시 시도해주세요.",
+  consent_required: "자료를 올리기 전에 외부 AI 전송 안내에 동의해주세요.",
+  unsupported_format:
+    "지원하지 않는 형식입니다. PDF, PPTX, HWP, HWPX, DOCX, TXT, PNG, JPG, HEIC만 올릴 수 있어요. (.ppt·.doc는 새 형식으로 저장해 주세요)",
+  file_too_large: "파일이 너무 큽니다. 파일당 50MB까지 올릴 수 있어요.",
+  empty_file: "빈 파일입니다. 내용이 있는 파일을 올려주세요.",
+  original_missing: "보관된 원본 파일을 찾을 수 없어요. 자료를 다시 올려주세요.",
+  upload_failed: "파일을 올리지 못했어요. 네트워크를 확인한 뒤 다시 올려주세요.",
+  upload_missing: "파일 업로드가 끝나지 않았어요. 다시 올려주세요.",
+  storage_unavailable: "자료 저장소가 설정되지 않았어요. 관리자에게 문의해주세요.",
 };
+
+// 분석 실패 사유 (materials.failure_code, PRD FR-1.4, FR-1.7)
+const FAILURE_MESSAGES: Record<string, string> = {
+  unsupported_format: "지원하지 않는 형식이에요. 파일 내용이 확장자와 다를 수 있어요.",
+  file_too_large: "파일이나 그림이 너무 커요.",
+  too_many_pages: "쪽수가 너무 많아요. 300쪽(슬라이드)까지 분석할 수 있어요.",
+  no_extractable_text: "글자를 찾지 못했어요. 글자가 보이는 자료인지 확인해주세요.",
+  corrupted_file: "파일을 열 수 없어요. 손상되었거나 암호가 걸린 파일일 수 있어요.",
+  llm_failed: "AI 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
+  internal_error: "분석 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
+};
+
+// 사진·손글씨는 기본 글자 인식(Tesseract)이 거의 못 읽어, 엉터리 글자 대신 실패로 처리된다
+const IMAGE_NO_TEXT =
+  "사진이나 손글씨 속 글자를 읽지 못했어요. 인쇄된 글자가 또렷하게 보이는 캡처나 스캔으로 다시 올려주세요.";
+
+export function failureMessage(code: string | null, fileType?: Material["file_type"]) {
+  if (code === "no_extractable_text" && (fileType === "png" || fileType === "jpg" || fileType === "heic")) {
+    return IMAGE_NO_TEXT;
+  }
+  return FAILURE_MESSAGES[code ?? ""] ?? FAILURE_MESSAGES.internal_error;
+}
 
 export function apiErrorMessage(error: unknown) {
   const code = error instanceof ApiError ? error.code : "";
@@ -208,3 +260,54 @@ export function uploadAvatar(file: File) {
     method: "POST", headers: { "Content-Type": file.type }, body: file,
   });
 }
+
+export function giveAiConsent() {
+  return apiFetch<Me>("/me/ai-consent", { method: "POST" });
+}
+
+export function listMaterials(projectId: string) {
+  return apiFetch<{ items: Material[] }>(`/projects/${encodeURIComponent(projectId)}/materials`);
+}
+
+type UploadUrl = {
+  material_id: string;
+  upload_url: string;
+  required_headers: Record<string, string>; // 서명에 포함된 헤더. PUT에 그대로 붙인다
+  material: Material;
+};
+
+// 업로드 세 단계 (architecture 7.1): 주소 받기 → 저장소에 직접 PUT → 완료 알림(분석 시작)
+export async function uploadMaterial(projectId: string, file: File) {
+  const target = await apiFetch<UploadUrl>(
+    `/projects/${encodeURIComponent(projectId)}/materials/upload-url`,
+    {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, size: file.size, content_type: file.type }),
+    },
+  );
+  let put: Response;
+  try {
+    put = await fetch(target.upload_url, {
+      method: "PUT",
+      headers: target.required_headers,
+      body: file,
+    });
+  } catch {
+    throw new ApiError(0, "upload_failed", "storage upload request failed");
+  }
+  if (!put.ok) {
+    // 서명된 크기 범위를 넘으면 저장소가 거절한다
+    throw new ApiError(put.status, put.status === 400 ? "file_too_large" : "upload_failed", put.statusText);
+  }
+  return apiFetch<Material>(
+    `/materials/${encodeURIComponent(target.material_id)}/upload-complete`,
+    { method: "POST" },
+  );
+}
+
+export function retryMaterial(materialId: string) {
+  return apiFetch<Material>(`/materials/${encodeURIComponent(materialId)}/retry`, {
+    method: "POST",
+  });
+}
+

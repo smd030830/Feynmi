@@ -27,6 +27,13 @@ class ProjectColor(StrEnum):
 class FileType(StrEnum):
     PDF = "pdf"
     PPTX = "pptx"
+    PNG = "png"
+    JPG = "jpg"  # .jpeg 포함
+    TXT = "txt"
+    DOCX = "docx"
+    HWP = "hwp"
+    HWPX = "hwpx"
+    HEIC = "heic"  # .heif 포함 (아이폰 기본 사진 형식)
 
 
 class MaterialStatus(StrEnum):

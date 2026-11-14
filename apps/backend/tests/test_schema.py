@@ -100,7 +100,7 @@ INVALID_ROWS: dict[str, Callable[[Graph], object]] = {
     "weekly_goal_days": lambda g: UserSettings(user_id=g.user.id, weekly_goal_days=8),
     "project_color": lambda g: Project(user_id=g.user.id, name="p", color="red"),
     "material_file_type": lambda g: Material(
-        project_id=g.project.id, title="t", file_type="docx", gcs_path="p", size_bytes=1
+        project_id=g.project.id, title="t", file_type="doc", gcs_path="p", size_bytes=1
     ),
     "material_status": lambda g: Material(
         project_id=g.project.id,

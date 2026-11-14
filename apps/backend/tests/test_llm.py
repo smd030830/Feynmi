@@ -23,16 +23,19 @@ class Answer(BaseModel):
 
 
 def settings(**overrides: Any) -> LLMSettings:
-    return LLMSettings(
-        _env_file=None,  # pyright: ignore[reportCallIssue]
-        openai_api_key=SecretStr("fake-test-key"),
-        llm_concept_extraction_model="test-extraction",
-        llm_concept_extraction_effort="medium",
-        llm_assessment_model="test-assessment",
-        llm_assessment_effort="medium",
-        llm_embedding_model="test-embedding",
-        **overrides,
-    )
+    values: dict[str, Any] = {
+        "openai_api_key": SecretStr("fake-test-key"),
+        "llm_concept_extraction_model": "test-extraction",
+        "llm_concept_extraction_effort": "medium",
+        "llm_assessment_model": "test-assessment",
+        "llm_assessment_effort": "medium",
+        "llm_embedding_model": "test-embedding",
+        # 개발 PC의 .env.llm(예: OpenRouter 주소)과 상관없이 기본 주소로 시험한다
+        "llm_base_url": "https://api.openai.com/v1",
+        "llm_image_text_model": None,
+        "llm_image_text_effort": None,
+    }
+    return LLMSettings(_env_file=None, **(values | overrides))  # pyright: ignore[reportCallIssue]
 
 
 def response(value: object) -> httpx.Response:
@@ -234,9 +237,12 @@ def test_concept_schema_and_semantics() -> None:
         validate_concept_extraction(
             ConceptExtractionOutput.model_validate(body), chunk_labels={"C1"}
         )
-    body["concepts"] = body["concepts"][:4]
-    with pytest.raises(ValidationError):
-        ConceptExtractionOutput.model_validate(body)
+    # 개념 수는 1~10개 (짧은 자료는 1개도 된다)
+    concepts = extraction()["concepts"]
+    assert len(ConceptExtractionOutput.model_validate({"concepts": concepts[:1]}).concepts) == 1
+    for wrong in ([], concepts * 3):  # 0개, 15개
+        with pytest.raises(ValidationError):
+            ConceptExtractionOutput.model_validate({"concepts": wrong})
 
 
 def test_assessment_requires_exact_elements_quotes_and_known_evidence() -> None:
@@ -309,3 +315,55 @@ async def test_duplicate_embedding_indices_are_rejected() -> None:
     ) as client:
         with pytest.raises(LLMError):
             await OpenAIProvider(settings(llm_max_retries=0), client).embed(["a", "b"])
+
+
+async def test_image_text_sends_png_and_returns_text() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        return response({"text": " 프로세스 상태도 \n"})
+
+    configured = settings(llm_image_text_model="test-vision")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        text = await OpenAIProvider(configured, client).read_image_text(b"\x89PNG", "image/png")
+    assert text == "프로세스 상태도"
+    payload = calls[0]
+    assert payload["model"] == "test-vision"
+    assert "reasoning" not in payload  # effort를 비우면 보내지 않는다
+    assert payload["store"] is False
+    # OpenAI 이미지 입력 형식 (공식 문서: input_text + input_image, data URL, detail)
+    [prompt, image] = payload["input"][0]["content"]
+    assert prompt["type"] == "input_text" and prompt["text"]
+    assert image == {
+        "type": "input_image",
+        "image_url": "data:image/png;base64,iVBORw==",
+        "detail": "high",  # 작은 글자를 읽으려면 고해상도
+    }
+    assert "추측" in payload["instructions"]
+
+
+async def test_image_text_requires_configured_model_and_known_type() -> None:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: response({}))) as client:
+        with pytest.raises(LLMError, match="not configured"):
+            await OpenAIProvider(settings(), client).read_image_text(b"x", "image/png")
+        provider = OpenAIProvider(settings(llm_image_text_model="m"), client)
+        with pytest.raises(ValueError):
+            await provider.read_image_text(b"x", "image/gif")
+
+
+async def test_base_url_points_to_openai_compatible_service() -> None:
+    """OpenRouter처럼 OpenAI 호환 주소로 보낼 수 있다. 끝의 / 는 지운다."""
+    urls: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1] * 1536}]})
+
+    configured = settings(llm_base_url="https://openrouter.ai/api/v1/")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        await OpenAIProvider(configured, client).embed(["text"])
+    assert urls == ["https://openrouter.ai/api/v1/embeddings"]
+    assert settings(llm_base_url="").llm_base_url == "https://api.openai.com/v1"
+    with pytest.raises(ValidationError):
+        settings(llm_base_url="http://openrouter.ai/api/v1")

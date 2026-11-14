@@ -11,6 +11,7 @@ from sqlalchemy.engine import Connection
 
 from backend.db.models import Base
 from backend.db.session import make_engine
+from backend.domain.enums import FileType
 
 EXPECTED_TABLES = {
     "users",
@@ -69,6 +70,21 @@ def test_upgrade_downgrade_upgrade(empty_db: None, alembic_cfg: Config) -> None:
 
     command.upgrade(alembic_cfg, "head")
     assert _run(_tables) == EXPECTED_TABLES | {"alembic_version"}
+
+
+def _check_def(conn: Connection, name: str) -> str:
+    return conn.execute(
+        text("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = :n"),
+        {"n": name},
+    ).scalar_one()
+
+
+def test_file_type_check_matches_enum(migrated_db: None) -> None:
+    """compare_metadata는 CHECK 내용을 비교하지 않으므로 FileType과 직접 맞춰 본다."""
+    definition = _run(lambda conn: _check_def(conn, "ck_materials_file_type"))
+    for value in FileType:
+        assert f"'{value.value}'" in definition
+    assert "'gif'" not in definition
 
 
 def test_models_match_migrations(migrated_db: None) -> None:
