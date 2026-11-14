@@ -390,6 +390,20 @@ async def test_without_ai_a_nearly_all_wrong_result_is_dropped() -> None:
     assert outcome == OcrOutcome("", "tesseract", "low confidence 35")
 
 
+async def test_drop_uses_whole_picture_confidence_not_filtered_lines() -> None:
+    # 실제 손글씨 사진: 엉터리 줄을 거른 뒤 남은 조각은 62.7이지만 그림 전체는 38 → 버린다
+    handwriting = OcrResult("20 23\n200. “0 _", 62.7, 0.4, raw_confidence=38.0)
+    outcome = await HybridOcr(FakeEngine(handwriting), SETTINGS, None).read(SLIDE_IMAGE)
+    assert outcome.text == ""
+
+
+def test_filtered_result_keeps_whole_picture_confidence() -> None:
+    text, tsv = tesseract_output([("좋은 줄 설명", 90), ("ESE acco", 20)])
+    result = reliable_result(text, tsv, SETTINGS.ocr_min_line_confidence)
+    assert result.confidence == pytest.approx(90)  # 남긴 줄
+    assert result.raw_confidence == pytest.approx((90 * 3 + 20 * 2) / 5)  # 그림 전체
+
+
 @pytest.mark.parametrize("error", [LLMError("down"), ValueError("bad output")])
 async def test_ai_failure_falls_back_to_tesseract(error: Exception) -> None:
     outcome = await HybridOcr(FakeEngine(SHAKY), SETTINGS, FakeAI(error=error)).read(SLIDE_IMAGE)

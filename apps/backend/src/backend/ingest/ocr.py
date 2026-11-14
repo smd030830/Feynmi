@@ -41,6 +41,10 @@ class OcrResult:
     confidence: float | None
     # 신뢰도 60 미만 단어의 비율 (평균이 높아도 쓰레기 단어가 섞였는지 본다)
     weak_ratio: float = 0.0
+    # 엉터리 줄을 거르기 전, 그림 전체 단어의 평균 신뢰도. 그림을 통째로 버릴지는 이것으로 정한다
+    # (손글씨: 전체 38 → 거른 뒤 남은 조각만 62.7이 되어 엉터리가 남던 문제).
+    # 없으면 confidence를 쓴다
+    raw_confidence: float | None = None
 
 
 class OcrEngine(Protocol):
@@ -259,9 +263,11 @@ def reliable_result(text: str, tsv: str, min_line_confidence: float) -> OcrResul
                 continue
             kept_words.extend(words[i])
         kept.append(line)
+    all_words = [c for line_confs in words for c in line_confs]
     if not by_line:
-        kept_words = [c for line_confs in words for c in line_confs]
-    return OcrResult("\n".join(kept), *_confidences(kept_words))
+        kept_words = all_words
+    confidence, weak = _confidences(kept_words)
+    return OcrResult("\n".join(kept), confidence, weak, raw_confidence=_confidences(all_words)[0])
 
 
 def _is_known_char(ch: str) -> bool:
@@ -379,10 +385,12 @@ class HybridOcr:
         result = await asyncio.to_thread(self.engine.read, image)
         doubt = doubt_reason(result, image.size, self.settings)
         kept = result.text
+        # 버릴지는 거르기 전 그림 전체의 신뢰도로 판단한다 (남은 조각만의 신뢰도는 부풀 수 있다)
+        whole = result.raw_confidence if result.raw_confidence is not None else result.confidence
         if (
             doubt is not None
-            and result.confidence is not None
-            and result.confidence < self.settings.ocr_drop_below_confidence
+            and whole is not None
+            and whole < self.settings.ocr_drop_below_confidence
         ):
             kept = ""  # 직인·무늬처럼 거의 다 틀린 결과는 쓰레기 글자를 남기느니 버린다
         fallback = OcrOutcome(kept, "tesseract", doubt)
