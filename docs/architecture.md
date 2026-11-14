@@ -353,7 +353,7 @@ sequenceDiagram
 - **구역 나누기**: HWP·HWPX·DOCX·TXT는 쪽 정보가 없어 긴 쪽을 제목 줄(`1.`, `◈`, `＃`, `제n장` 등)에서, 없으면 줄 경계에서 약 1,500~2,500자 구역으로 나누고 번호를 다시 붙인다. 구역 수는 300을 넘지 않는다. `materials.page_count`와 청크의 쪽 번호는 이 구역 번호다.
 - **반복 머리글 제거**: PDF·PPTX·이미지처럼 실제 쪽이 있는 자료는 절반 이상의 쪽에 똑같이 나오는 줄(머리글·바닥글)을 청크에서 뺀다.
 - **청크 분할**: 쪽/슬라이드 경계를 우선하고, 길면 토큰 기준(tiktoken)으로 자르며 오버랩을 둔다. 수치는 PRD 9.4를 따른다. 청크에는 쪽/슬라이드 범위를 기록해서 근거 표시에 쓴다.
-- **멱등성**: 작업 페이로드에 `attempt`(재시도 버튼을 누를 때마다 증가)를 넣는다. 워커는 DB의 `analysis_attempt`와 다르거나 이미 `ready`인 작업을 무시한다. 시작할 때 해당 자료의 기존 청크와 개념을 지우고 다시 만든다.
+- **멱등성**: 작업 페이로드에 `attempt`(재시도 버튼을 누를 때마다 증가)를 넣는다. 워커는 DB의 `analysis_attempt`와 다르거나 이미 끝난(`ready`, `failed`) 작업을 무시한다. 같은 시도가 진행 상태에서 다시 오면(인스턴스가 끊겨 재전달된 경우) 처음부터 다시 한다. 시작할 때 해당 자료의 기존 청크와 개념을 지우고 다시 만든다. `upload-complete`가 다시 와도 작업을 두 번 등록하지 않는다.
 - **재시도 경계**: 사용자 원인 실패(형식, 쪽수, 텍스트 없음)와 LLM 최종 실패는 `failed`로 기록하고 2xx를 반환해서 Cloud Tasks가 재전달하지 않게 한다. 인스턴스 장애처럼 응답 없이 끊긴 경우는 Cloud Tasks가 재전달한다.
 - **멈춘 작업**: 진행 상태인데 `updated_at`이 작업 데드라인(9.3)을 넘긴 자료는 조회할 때 `failed/internal_error`로 바꾼다. 사용자는 재시도 버튼으로 복구한다 (FR-1.3).
 - **재시도 버튼**: `POST /materials/{id}/retry`는 `failed` 상태에서만 허용한다. `analysis_attempt`를 1 올리고 보관된 원본으로 작업을 다시 등록한다.
@@ -583,12 +583,14 @@ erDiagram
 | `OCR_*` | Tesseract 경로·언어, 읽을 그림 수·AI 호출 상한, 애매함·버림 기준, 시간 상한, 동시 실행 수 (`.env.example`에 설명) | |
 | `RAG_CHUNK_TOKENS`, `RAG_CHUNK_OVERLAP_TOKENS`, `RAG_TOP_K` | 청크/검색 수치 (PRD 9.4) | |
 | `DATABASE_URL` | asyncpg 접속 문자열 | O |
-| `GCS_BUCKET` | 원본 버킷 | |
+| `GCS_BUCKET` | 원본·프로필 이미지 버킷. 로컬에서 비우면 학습자료 원본은 GCS 에뮬레이터에 둔다 (11.2) | |
+| `GCS_EMULATOR_URL`, `GCS_EMULATOR_PUBLIC_URL` | 로컬 GCS 에뮬레이터 주소 (백엔드용 / 브라우저 업로드용). compose가 넣는다 | |
 | `GCS_SIGNER_SERVICE_ACCOUNT` | ADC 직접 서명이 불가능할 때 읽기 URL의 IAM 서명 주체 | |
 | `FIREBASE_PROJECT_ID` | ID 토큰 검증 대상 프로젝트 | |
 | `QUEUE_MODE` | `cloud_tasks` 또는 `inline` (로컬) | |
 | `TASKS_PROJECT`, `TASKS_LOCATION`, `TASKS_QUEUE`, `TASKS_INVOKER_SA` | Cloud Tasks 큐와 OIDC 서명 SA | |
 | `PUBLIC_BASE_URL` | 워커 호출 URL, OIDC audience | |
+| `ANALYSIS_DEADLINE_MINUTES` | 분석 작업 데드라인(분). 진행 상태로 이보다 오래 멈춘 자료는 실패 처리 (7.1). Cloud Tasks 디스패치 데드라인과 같게 둔다 | |
 | `CORS_ORIGINS` | 허용 오리진 목록 | |
 
 프론트엔드는 `NEXT_PUBLIC_API_BASE_URL`과 `NEXT_PUBLIC_FIREBASE_*`(웹 앱 설정)를 쓴다. Firebase 웹 설정은 클라이언트에 노출되는 식별자라서 비밀이 아니다. 보호는 Firebase 승인 도메인 설정과 백엔드 토큰 검증으로 한다.
@@ -605,14 +607,14 @@ erDiagram
 | Cloud Run `feynmi-api` | `apps/backend/Dockerfile`. Cloud SQL 커넥터로 접속. 요청 타임아웃은 분석 작업 데드라인 이상으로 설정(초기 30분). 서비스 계정 권한: Cloud SQL Client, 버킷 객체 읽기/쓰기, Cloud Tasks Enqueuer, 자기 자신에 대한 Token Creator(Signed URL 서명용), Secret Accessor |
 | Cloud Tasks `analysis` | 디스패치 데드라인 30분(HTTP 대상 상한), 최대 시도 3회. 인프라 장애에 대한 재전달용 |
 | Cloud SQL | PostgreSQL 18 + `vector` 확장. 마이그레이션은 배포 전에 `alembic upgrade head`로 실행 |
-| GCS | 균일 버킷 수준 액세스, 공개 액세스 방지, 프론트 오리진 PUT용 CORS. 원본과 프로필 이미지를 같은 버킷의 `users/{user_id}/` 아래에 둔다 |
+| GCS | 균일 버킷 수준 액세스, 공개 액세스 방지, 프론트 오리진 PUT용 CORS(요청 헤더 `Content-Type`, `x-goog-content-length-range` 허용). 원본과 프로필 이미지를 같은 버킷의 `users/{user_id}/` 아래에 둔다 |
 | Firebase | 이메일/비밀번호(이메일 인증 템플릿 한국어), 구글 공급자, 승인 도메인 |
 
 ### 11.2 로컬 개발 (FM-002)
 - `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(`pgvector/pgvector:pg18-trixie` 이미지). `backend`는 기동할 때 `alembic upgrade head`를 먼저 실행한다.
 - `apps/backend/Dockerfile`은 `dev`(compose, 소스 마운트)와 `prod`(Cloud Run, 기본 타깃) 두 타깃이다. 마이그레이션은 `prod` 이미지로도 실행한다(11.1). 두 타깃 모두 Tesseract(`kor`, `eng`)를 설치한다. Tesseract는 한 번에 CPU 1개만 쓰고(`OMP_THREAD_LIMIT=1`), 서버 전체 동시 실행 수는 `OCR_MAX_PARALLEL`로 제한한다. 스캔 자료는 쪽을 300dpi로 그려 읽어 600MB 안팎의 메모리가 필요하다.
 - 백엔드 테스트는 별도 DB(`feynmi_test`)를 쓴다. 테스트가 스키마를 지우므로 DB 이름이 `_test`로 끝나야 한다.
-- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. GCS와 Admin SDK 호출(최초 사용자 생성 전 계정 확인, 토큰 폐기, 탈퇴)에는 ADC나 개발용 서비스 계정 자격 증명(커밋 금지)이 필요하다. 기존 사용자의 ID 토큰 서명 검증 자체에는 필요 없다. Signed URL은 서명 가능한 서비스 계정 자격 증명 또는 `GCS_SIGNER_SERVICE_ACCOUNT`와 IAM 서명 권한이 필요하다.
+- Firebase는 **개발용 Firebase 프로젝트**를 쓴다. GCS는 `.env`에 `GCS_BUCKET`이 있으면 **개발용 버킷**을 쓰고, 비어 있으면 학습자료 원본을 compose의 `gcs` 서비스(GCS 에뮬레이터, fake-gcs-server)에 둔다. 에뮬레이터 모드에서는 Signed URL 대신 에뮬레이터 업로드 주소를 주고, 서명·크기 범위를 검사하지 않으므로 백엔드가 `upload-complete`에서 실제 크기를 다시 확인한다. 개발용 버킷이 없어도 업로드부터 분석까지 같은 흐름으로 시험할 수 있다. 프로필 이미지는 여전히 버킷이 필요하다. GCS와 Admin SDK 호출(최초 사용자 생성 전 계정 확인, 토큰 폐기, 탈퇴)에는 ADC나 개발용 서비스 계정 자격 증명(커밋 금지)이 필요하다. 기존 사용자의 ID 토큰 서명 검증 자체에는 필요 없다. Signed URL은 서명 가능한 서비스 계정 자격 증명 또는 `GCS_SIGNER_SERVICE_ACCOUNT`와 IAM 서명 권한이 필요하다.
 - `QUEUE_MODE=inline`이면 큐 등록 대신 같은 프로세스에서 분석 함수를 백그라운드 태스크로 실행한다. 워커 로직은 운영과 같고 전달 경로만 다르다.
 
 ### 11.3 CI (FM-003)

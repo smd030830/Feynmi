@@ -37,4 +37,47 @@ IntelliJ 상단 실행 설정에서 다음 항목을 선택한 뒤 Run(▶)을 �
 백엔드를 끌 때는 IntelliJ의 ■ 버튼 대신 `Backend stop`을 실행합니다.
 
 API 문서는 http://localhost:8000/docs 에서 확인할 수 있습니다.
+
+## 학습자료 업로드와 분석 시험
+
+자료를 올리면 글자 추출(그림은 OCR) → 조각·임베딩 저장 → 개념 추출까지 백엔드가 처리합니다.
+
+**준비**
+
+- 저장소 루트 `.env.llm`에 AI 키와 모델을 넣습니다(`.env.llm.example` 참고).
+  없으면 업로드와 글자 추출까지만 되고 개념은 만들어지지 않습니다.
+- `.env`의 `GCS_BUCKET`을 비워 두면 원본을 로컬 GCS 에뮬레이터(compose의 `gcs` 서비스)에 보관합니다.
+  개발용 버킷이나 클라우드 설정 없이 시험할 수 있습니다. 버킷을 넣으면 그 버킷을 씁니다.
+
+**실행**
+
+`Backend start` → `Frontend dev` 순서로 실행합니다. `Backend start`는 DB, GCS 에뮬레이터, 백엔드를 함께 켜고
+백엔드 의존성(파서·OCR 라이브러리, Tesseract)이 바뀌었으면 이미지를 다시 만듭니다.
+pull 뒤 첫 실행은 이미지 빌드로 몇 분 걸릴 수 있습니다.
+터미널에서는 저장소 루트에서 `docker compose up -d --build --wait db gcs backend`로 같은 동작을 합니다.
+
+**화면에서 확인**
+
+1. 로그인 → 프로젝트 만들기 → 학습자료 탭에서 파일을 끌어다 놓거나 `학습자료 업로드`를 누릅니다.
+   PDF, PPTX, HWP, HWPX, DOCX, TXT, PNG, JPG, HEIC를 여러 개 한 번에 올릴 수 있습니다(파일당 50MB).
+2. 처음 올릴 때 외부 AI 전송 안내에 동의합니다.
+3. 상태가 `업로드 중 → 분석 대기 → 글자 추출 중 → 개념 생성 중 → 분석 완료`로 바뀝니다.
+   그림이 많은 자료는 1~2분 걸립니다. 실패하면 사유와 `재시도` 버튼이 나옵니다.
+4. 개념 탭에서 개념을 확인하고 `학습하기`로 설명 학습을 시작합니다.
+
+**DB에서 확인 (선택)**
+
+IntelliJ Database 창에서 PostgreSQL `localhost:5432`, 사용자·비밀번호 `feynmi`, DB `feynmi`로 연결합니다.
+
+```sql
+-- 자료별 쪽·조각 수와 임베딩 차원(1536)
+select m.title, m.page_count as 쪽, count(c.id) as 조각, min(vector_dims(c.embedding)) as 차원
+from materials m left join chunks c on c.material_id = m.id
+group by m.id order by m.created_at desc;
+
+-- 개념과 요소 수
+select k.title as 개념, count(e.id) as 요소
+from concepts k left join concept_elements e on e.concept_id = k.id
+group by k.id order by k.material_id, k.ordinal;
+```
 터미널에서는 `apps/frontend`에서 `pnpm backend:start`, `pnpm backend:stop`으로도 실행할 수 있습니다.
