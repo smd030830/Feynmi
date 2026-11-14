@@ -53,7 +53,7 @@ API 문서는 http://localhost:8000/docs 에서 확인할 수 있습니다.
 
 `Backend start` → `Frontend dev` 순서로 실행합니다. `Backend start`는 DB, GCS 에뮬레이터, 백엔드를 함께 켜고
 백엔드 의존성(파서·OCR 라이브러리, Tesseract)이 바뀌었으면 이미지를 다시 만듭니다.
-pull 뒤 첫 실행은 이미지 빌드로 몇 분 걸릴 수 있습니다.
+pull 뒤 첫 실행은 이미지 빌드로 몇 분 걸릴 수 있습니다. 이미 켜 둔 `Frontend dev`가 있으면 pull 뒤에 다시 시작합니다(이전 화면 코드가 남아 업로드가 404로 실패할 수 있음).
 터미널에서는 저장소 루트에서 `docker compose up -d --build --wait db gcs backend`로 같은 동작을 합니다.
 
 **화면에서 확인**
