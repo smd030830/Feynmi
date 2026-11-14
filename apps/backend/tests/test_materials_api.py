@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from account_fakes import FakeCloud
 from fastapi import FastAPI
 from PIL import Image
 from pydantic import SecretStr
@@ -71,6 +72,7 @@ async def app(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[FastAPI]:
         firebase_project_id="test",
     )
     app = create_app(settings, token_verifier=verify)
+    app.state.account_cloud = FakeCloud()  # 새 사용자 Firebase 확인을 가짜로 (실제 구글 호출 안 함)
     app.state.storage = LocalStorage(tmp_path / "materials")
     app.state.ocr_factory = fake_ocr
     app.state.llm_settings = None  # 기본은 키 없음
