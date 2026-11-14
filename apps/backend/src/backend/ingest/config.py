@@ -37,6 +37,8 @@ class OCRSettings(BaseSettings):
     ocr_max_garbage_ratio: float = Field(default=0.3, ge=0, le=1)
     # "애매함" 기준: 이상한 낱말(드문 기호가 섞였거나 기호 하나뿐)의 비율이 이보다 높으면 애매
     ocr_max_odd_token_ratio: float = Field(default=0.1, ge=0, le=1)
+    # "애매함" 기준: 줄 거르기로 버린 글자가 이 비율보다 많으면 애매
+    ocr_max_dropped_ratio: float = Field(default=0.2, ge=0, le=1)
     # 애매한데 평균 신뢰도가 이보다 낮으면(AI로 다시 읽지 못할 때) 글자를 버린다
     ocr_drop_below_confidence: float = Field(default=40.0, ge=0, le=100)
     # 그림 속 한 줄의 단어 평균 신뢰도가 이보다 낮고 한글이 절반 미만이면 그 줄을 버린다

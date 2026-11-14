@@ -139,7 +139,7 @@ async def _ocr_text(image: Image.Image | None, raw: RawPage, ocr: HybridOcr, pag
         return ""
     if not raw.whole_image and not is_ocr_target(image.size, ocr.settings):
         return ""
-    outcome = await ocr.read(image)
+    outcome = await ocr.read(image, whole_file=raw.whole_image)
     if not outcome.text or _is_duplicate(outcome.text, page_text):
         return ""
     return outcome.text

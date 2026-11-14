@@ -47,6 +47,9 @@ class OcrResult:
     # (손글씨: 전체 38 → 거른 뒤 남은 조각만 62.7이 되어 엉터리가 남던 문제).
     # 없으면 confidence를 쓴다
     raw_confidence: float | None = None
+    # 줄 거르기로 버린 글자의 비율. 크면 그림의 상당 부분을 제대로 읽지 못한 것이다
+    # (교재 사진: 신뢰도 83인데 글자의 37%가 엉터리 줄로 버려지고 수식은 거의 못 읽음)
+    dropped_ratio: float = 0.0
 
 
 class OcrEngine(Protocol):
@@ -290,7 +293,16 @@ def reliable_result(text: str, tsv: str, min_line_confidence: float) -> OcrResul
     if not by_line:
         kept_words = all_words
     confidence, weak = _confidences(kept_words)
-    return OcrResult("\n".join(kept), confidence, weak, raw_confidence=_confidences(all_words)[0])
+    raw_chars = len("".join(cleaned.split()))
+    kept_chars = len("".join("".join(kept).split()))
+    dropped = 1 - kept_chars / raw_chars if raw_chars else 0.0
+    return OcrResult(
+        "\n".join(kept),
+        confidence,
+        weak,
+        raw_confidence=_confidences(all_words)[0],
+        dropped_ratio=dropped,
+    )
 
 
 def _is_known_char(ch: str) -> bool:
@@ -329,6 +341,8 @@ def doubt_reason(
     odd = odd_token_ratio(result.text)
     if odd > settings.ocr_max_odd_token_ratio:
         return f"many odd tokens {odd:.0%}"
+    if result.dropped_ratio > settings.ocr_max_dropped_ratio:
+        return f"many lines dropped {result.dropped_ratio:.0%}"
     return None
 
 
@@ -403,10 +417,17 @@ class HybridOcr:
         """자료 하나에서 OCR할 그림 수 상한(`ocr_max_images`)이 남았는지."""
         return self.images_read < self.settings.ocr_max_images
 
-    async def read(self, image: Image.Image) -> OcrOutcome:
+    async def read(self, image: Image.Image, *, whole_file: bool = False) -> OcrOutcome:
+        """`whole_file`: 올린 이미지 파일 자체(사진·캡처·손필기). AI가 있으면 늘 AI로 읽는다.
+
+        한 장이 자료 전체라 호출은 파일당 한 번이고, Tesseract는 사진 속 수식·손글씨·
+        일부 영역을 놓치면서도 신뢰도는 높게 내는 경우가 있어 애매함 판정만으로는 못 잡는다.
+        """
         self.images_read += 1
         result = await asyncio.to_thread(self.engine.read, image)
         doubt = doubt_reason(result, image.size, self.settings)
+        if doubt is None and whole_file and self.ai is not None:
+            doubt = "uploaded image file"
         kept = result.text
         # 버릴지는 거르기 전 그림 전체의 신뢰도로 판단한다 (남은 조각만의 신뢰도는 부풀 수 있다)
         whole = result.raw_confidence if result.raw_confidence is not None else result.confidence

@@ -70,6 +70,12 @@ def test_clear_result_is_trusted() -> None:
         (OcrResult("", confidence=None), (1024, 1425), "large image with little text"),
         (OcrResult("a b", confidence=95.0), (1024, 1425), "large image with little text"),
         (OcrResult("§¶ª¤ ¦¨ ©®", confidence=88.0), (400, 300), "many unknown symbols"),
+        # 신뢰도는 높아도 줄 거르기로 글자의 37%를 버렸다 (교재 사진)
+        (
+            OcrResult("실베스터의 관성법칙", confidence=83.0, dropped_ratio=0.37),
+            (400, 300),
+            "many lines dropped 37%",
+        ),
     ],
 )
 def test_doubtful_results(result: OcrResult, size: tuple[int, int], reason: str) -> None:
@@ -147,6 +153,8 @@ def test_unreliable_lines_are_dropped_and_good_lines_kept() -> None:
     ]
     # 신뢰도는 남긴 줄의 단어로 다시 계산한다 (엉터리 줄이 평균을 끌어내리지 않게)
     assert result.confidence == pytest.approx((90 * 6 + 30 * 4 + 95 + 92 * 5) / 16)
+    # 버린 줄의 글자 비율 (공백 제외 55자 중 26자)
+    assert result.dropped_ratio == pytest.approx(26 / 55)
 
 
 @pytest.mark.parametrize(
@@ -358,6 +366,19 @@ async def test_clear_result_never_calls_ai() -> None:
     outcome = await HybridOcr(FakeEngine(CLEAR), SETTINGS, ai).read(SLIDE_IMAGE)
     assert outcome == OcrOutcome("프로세스와 스레드", "tesseract", None)
     assert ai.calls == []
+
+
+async def test_uploaded_image_file_is_always_read_by_ai() -> None:
+    # 사진·캡처·손필기 파일 자체: Tesseract가 그럴듯해 보여도 AI로 읽는다 (파일당 1번)
+    ai = FakeAI("실베스터의 관성법칙")
+    outcome = await HybridOcr(FakeEngine(CLEAR), SETTINGS, ai).read(SLIDE_IMAGE, whole_file=True)
+    assert outcome == OcrOutcome("실베스터의 관성법칙", "ai", "uploaded image file")
+    assert len(ai.calls) == 1
+
+
+async def test_uploaded_image_file_without_ai_keeps_tesseract() -> None:
+    outcome = await HybridOcr(FakeEngine(CLEAR), SETTINGS, None).read(SLIDE_IMAGE, whole_file=True)
+    assert outcome == OcrOutcome("프로세스와 스레드", "tesseract", None)
 
 
 async def test_doubtful_result_is_reread_by_ai_as_png() -> None:
