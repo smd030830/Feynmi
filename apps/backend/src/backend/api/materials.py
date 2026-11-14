@@ -1,26 +1,29 @@
-"""학습자료 API (architecture 8.1).
+"""학습자료 API (architecture 7.1, 8.1).
 
-architecture 7.1은 Signed URL로 GCS에 직접 올리고 Cloud Tasks로 워커를 부른다.
-이 구현은 로컬 개발·시연용으로 백엔드가 파일을 직접 받아 보관하고,
-응답 뒤 같은 프로세스에서 분석한다.
-목록·재시도의 응답 모양은 7.1 흐름과 같게 둔다.
+업로드는 세 단계다: `upload-url`(검사 후 업로드 주소 발급) → 브라우저가 저장소에 직접 PUT
+→ `upload-complete`(원본 확인 후 분석 작업 등록). 백엔드는 원본 바이트를 받지 않는다.
+분석 작업은 `QUEUE_MODE`에 따라 같은 프로세스(inline) 또는 Cloud Tasks로 전달한다.
 """
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, UploadFile, status
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import CurrentUser, DbSession, require_profile
 from backend.db.models import Material
 from backend.domain.enums import FailureCode, FileType, MaterialStatus
 from backend.errors import AppError
-from backend.ingest import MAX_FILE_BYTES, IngestError, read_material
+from backend.ingest import IngestError, read_material
 from backend.services import materials
 from backend.services.analysis import analyze_material
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["materials"])
 
@@ -41,6 +44,22 @@ class MaterialResponse(BaseModel):
 
 class MaterialListResponse(BaseModel):
     items: list[MaterialResponse]
+
+
+class UploadUrlRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=1000)
+    size: int
+    # 브라우저가 알려 준 형식. 서명에는 서버가 확장자로 정한 형식을 쓴다
+    # (HWP·HEIC는 브라우저가 형식을 모른다)
+    content_type: str = ""
+
+
+class UploadUrlResponse(BaseModel):
+    material_id: uuid.UUID
+    upload_url: str
+    # PUT 요청에 그대로 붙여야 하는 헤더 (서명에 포함된 값)
+    required_headers: dict[str, str]
+    material: MaterialResponse
 
 
 class PageResponse(BaseModel):
@@ -66,42 +85,72 @@ def _response(material: Material, chunk_count: int = 0) -> MaterialResponse:
     )
 
 
-def _schedule(request: Request, tasks: BackgroundTasks, material: Material) -> None:
+async def _schedule(
+    request: Request, tasks: BackgroundTasks, material: Material, db: AsyncSession
+) -> None:
+    """분석 작업을 넘긴다. 큐 등록에 실패하면 자료를 실패로 돌려 재시도 버튼이 보이게 한다."""
     state = request.app.state
-    tasks.add_task(
-        analyze_material,
-        state.session_factory,
-        state.storage,
-        material.id,
-        material.analysis_attempt,
-        llm_settings=state.llm_settings,
-        ocr_factory=state.ocr_factory,
+    if state.analysis_queue is None:  # QUEUE_MODE=inline
+        tasks.add_task(
+            analyze_material,
+            state.session_factory,
+            state.storage,
+            material.id,
+            material.analysis_attempt,
+            llm_settings=state.llm_settings,
+            ocr_factory=state.ocr_factory,
+        )
+        return
+    try:
+        await asyncio.to_thread(
+            state.analysis_queue.enqueue, material.id, material.analysis_attempt
+        )
+    except Exception:
+        logger.exception("could not enqueue analysis for material %s", material.id)
+        await materials.mark_failed(db, material, FailureCode.INTERNAL_ERROR)
+
+
+@router.post("/projects/{project_id}/materials/upload-url")
+async def request_upload_url(
+    project_id: uuid.UUID,
+    body: UploadUrlRequest,
+    request: Request,
+    current: ProfileUser,
+    db: DbSession,
+) -> UploadUrlResponse:
+    material, target = await materials.request_upload(
+        db, request.app.state.storage, current.user, project_id, body.filename, body.size
+    )
+    return UploadUrlResponse(
+        material_id=material.id,
+        upload_url=target.url,
+        required_headers=target.headers,
+        material=_response(material),
     )
 
 
-@router.post("/projects/{project_id}/materials", status_code=status.HTTP_202_ACCEPTED)
-async def upload_material(
-    project_id: uuid.UUID,
-    file: UploadFile,
+@router.post("/materials/{material_id}/upload-complete", status_code=status.HTTP_202_ACCEPTED)
+async def complete_upload(
+    material_id: uuid.UUID,
     request: Request,
     tasks: BackgroundTasks,
     current: ProfileUser,
     db: DbSession,
 ) -> MaterialResponse:
-    # 상한보다 1바이트 더 읽어 초과 여부만 확인한다 (큰 파일 전체를 메모리에 올리지 않는다).
-    data = await file.read(MAX_FILE_BYTES + 1)
-    material = await materials.create_material(
-        db, request.app.state.storage, current.user, project_id, file.filename or "", data
+    material, enqueue = await materials.complete_upload(
+        db, request.app.state.storage, current.user.id, material_id
     )
-    _schedule(request, tasks, material)
+    if enqueue:
+        await _schedule(request, tasks, material, db)
     return _response(material)
 
 
 @router.get("/projects/{project_id}/materials")
 async def list_materials(
-    project_id: uuid.UUID, current: ProfileUser, db: DbSession
+    project_id: uuid.UUID, request: Request, current: ProfileUser, db: DbSession
 ) -> MaterialListResponse:
-    summaries = await materials.list_materials(db, current.user.id, project_id)
+    deadline = request.app.state.analysis_deadline_minutes
+    summaries = await materials.list_materials(db, current.user.id, project_id, deadline)
     return MaterialListResponse(items=[_response(s.material, s.chunk_count) for s in summaries])
 
 
@@ -114,7 +163,7 @@ async def retry_material(
     db: DbSession,
 ) -> MaterialResponse:
     material = await materials.retry_material(db, current.user.id, material_id)
-    _schedule(request, tasks, material)
+    await _schedule(request, tasks, material, db)
     return _response(material)
 
 

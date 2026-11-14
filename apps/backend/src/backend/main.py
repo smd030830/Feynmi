@@ -1,25 +1,23 @@
 import asyncio
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import account, materials, me, projects, sessions
+from backend.api import account, internal, materials, me, projects, sessions
 from backend.auth.firebase import TokenVerifier, make_token_verifier
 from backend.config import Settings, get_settings
 from backend.db.session import make_engine, make_session_factory
 from backend.errors import register_error_handlers
 from backend.ingest import make_ocr
 from backend.services.account import retry_deletions
-from backend.services.analysis import load_llm_settings, recover_interrupted
+from backend.services.analysis import load_llm_settings
 from backend.services.cloud import AccountCloud, GoogleAccountCloud
-from backend.services.storage import LocalStorage
+from backend.services.queue import make_queue, make_task_token_verifier
+from backend.services.storage import make_storage
 
 API_PREFIX = "/api/v1"
-
-logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -32,11 +30,6 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # 서버가 꺼질 때 분석 중이던 자료는 실패로 돌려 재시도할 수 있게 한다
-        try:
-            await recover_interrupted(app.state.session_factory)
-        except Exception:  # DB가 아직 안 떴어도 서버는 켠다
-            logger.warning("could not recover interrupted analyses", exc_info=True)
         recovery = asyncio.create_task(
             retry_deletions(app.state.session_factory, app.state.account_cloud)
         )
@@ -55,8 +48,13 @@ def create_app(
     app.state.account_cloud = account_cloud or GoogleAccountCloud(
         settings.firebase_project_id, settings.gcs_bucket, settings.gcs_signer_service_account
     )
-    # 자료 분석(architecture 7.1). 테스트는 보관소·OCR·LLM 설정을 바꿔 끼운다.
-    app.state.storage = LocalStorage(settings.materials_dir)
+    # 자료 업로드·분석(architecture 7.1). 테스트는 보관소·큐·OCR·LLM 설정을 바꿔 끼운다.
+    app.state.storage = make_storage(settings)
+    app.state.analysis_queue = make_queue(settings)  # inline이면 None
+    app.state.task_token_verifier = (
+        make_task_token_verifier(settings) if settings.queue_mode == "cloud_tasks" else None
+    )
+    app.state.analysis_deadline_minutes = settings.analysis_deadline_minutes
     app.state.ocr_factory = make_ocr
     app.state.llm_settings = load_llm_settings()
 
@@ -80,6 +78,7 @@ def create_app(
     api.include_router(account.router)
     api.include_router(sessions.router)
     api.include_router(materials.router)
+    api.include_router(internal.router)
     # 기능 라우터는 여기에 등록한다: api.include_router(...)
     app.include_router(api)
 

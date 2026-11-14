@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.db.models import Chunk, Concept, Material, Project
@@ -38,36 +38,11 @@ def load_llm_settings() -> LLMSettings | None:
         return None
 
 
-# 서버 안에서 돌던 분석은 서버가 꺼지면 함께 사라진다
-_INTERRUPTED = (
-    MaterialStatus.PENDING_UPLOAD,
+_RUNNABLE = (
     MaterialStatus.QUEUED,
     MaterialStatus.EXTRACTING,
     MaterialStatus.GENERATING_CONCEPTS,
 )
-
-
-async def recover_interrupted(session_factory: async_sessionmaker[AsyncSession]) -> int:
-    """서버가 켜질 때, 끝나지 못한 분석을 실패로 바꿔 재시도 버튼이 보이게 한다.
-
-    분석이 서버 프로세스 안에서 도는 로컬 방식 전용이다. 서버를 여러 개 띄우면 쓰지 않는다
-    (architecture 7.1의 Cloud Tasks 방식은 작업 큐가 다시 실행해 준다).
-    """
-    async with session_factory() as db:
-        result = await db.execute(
-            update(Material)
-            .where(Material.status.in_([s.value for s in _INTERRUPTED]))
-            .values(
-                status=MaterialStatus.FAILED.value,
-                failure_code=FailureCode.INTERNAL_ERROR.value,
-            )
-            .returning(Material.id)
-        )
-        recovered = len(result.scalars().all())
-        await db.commit()
-    if recovered:
-        logger.warning("marked %d interrupted analyses as failed", recovered)
-    return recovered
 
 
 async def _set_status(
@@ -87,13 +62,18 @@ async def analyze_material(
     llm_settings: LLMSettings | None,
     ocr_factory: OcrFactory = make_ocr,
 ) -> None:
-    """같은 시도(`analysis_attempt`)가 `queued`일 때만 실행한다 (중복 실행 방지, 7.1)."""
+    """같은 시도(`analysis_attempt`)이고 아직 끝나지 않았을 때만 실행한다 (7.1 멱등성).
+
+    진행 상태(`extracting` 등)에서 다시 오면 인스턴스가 도중에 끊겨 Cloud Tasks가 재전달한 경우라
+    처음부터 다시 한다 (시작할 때 이전 조각과 개념을 지운다). 끝났거나(`ready`, `failed`)
+    재시도로 시도 번호가 바뀐 작업은 무시한다.
+    """
     async with session_factory() as db:
         material = await db.get(Material, material_id)
         if (
             material is None
             or material.analysis_attempt != attempt
-            or material.status != MaterialStatus.QUEUED
+            or material.status not in _RUNNABLE
         ):
             return
         user_id = await db.scalar(select(Project.user_id).where(Project.id == material.project_id))

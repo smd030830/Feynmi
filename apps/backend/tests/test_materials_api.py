@@ -1,14 +1,14 @@
 """학습자료 업로드·분석 API를 실제 PostgreSQL로 확인한다 (PRD FR-1.1~1.8, FR-4.2).
 
-로그인은 가짜 검증 함수, OCR은 가짜 엔진, 보관소는 임시 폴더, OpenAI는 가짜 제공자를 쓴다.
+로그인은 가짜 검증 함수, OCR은 가짜 엔진, 보관소는 메모리(GCS 대신), OpenAI는 가짜 제공자를 쓴다.
+업로드는 architecture 7.1 세 단계(upload-url → 저장소에 PUT → upload-complete)를 그대로 거친다.
 """
 
 import io
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -23,7 +23,6 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 from test_ingest import make_pdf
 
-from backend.api import materials as materials_api
 from backend.auth.firebase import VerifiedToken
 from backend.config import Settings
 from backend.db.models import (
@@ -44,7 +43,14 @@ from backend.main import API_PREFIX, create_app
 from backend.services import analysis
 from backend.services import materials as materials_service
 from backend.services.concepts import CONCEPT_EXTRACTION_INSTRUCTIONS
-from backend.services.storage import LocalStorage
+from backend.services.queue import CloudTasksQueue, make_queue
+from backend.services.storage import (
+    EmulatorStorage,
+    GcsStorage,
+    UnconfiguredStorage,
+    UploadTarget,
+    make_storage,
+)
 
 pytestmark = pytest.mark.usefixtures("migrated_db")
 
@@ -74,15 +80,57 @@ def fake_ocr(_: object = None) -> HybridOcr:
     return HybridOcr(FakeEngine(), OCRSettings(_env_file=None))  # pyright: ignore[reportCallIssue]
 
 
+class FakeStorage:
+    """GCS 대신 메모리. 업로드 주소는 가짜이고, 시험이 브라우저 대신 `files`에 직접 넣는다."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self.targets: dict[str, str] = {}  # 업로드 주소 → 객체 경로
+
+    def upload_target(self, key: str, content_type: str, max_bytes: int) -> UploadTarget:
+        url = f"https://upload.invalid/{len(self.targets)}"
+        self.targets[url] = key
+        return UploadTarget(
+            url, {"Content-Type": content_type, "x-goog-content-length-range": f"0,{max_bytes}"}
+        )
+
+    def put(self, url: str, data: bytes) -> None:
+        self.files[self.targets[url]] = data
+
+    def size(self, key: str) -> int | None:
+        return len(self.files[key]) if key in self.files else None
+
+    def load(self, key: str) -> bytes:
+        if key not in self.files:
+            raise FileNotFoundError(key)
+        return self.files[key]
+
+
+class FakeQueue:
+    def __init__(self) -> None:
+        self.tasks: list[tuple[uuid.UUID, int]] = []
+        self.fail = False
+
+    def enqueue(self, material_id: uuid.UUID, attempt: int) -> None:
+        if self.fail:
+            raise RuntimeError("cloud tasks unavailable")
+        self.tasks.append((material_id, attempt))
+
+
+STORAGE = FakeStorage()
+
+
 @pytest.fixture
-async def app(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[FastAPI]:
+async def app(engine: AsyncEngine) -> AsyncIterator[FastAPI]:
+    global STORAGE
+    STORAGE = FakeStorage()
     settings = Settings(
         database_url=str(engine.url.render_as_string(hide_password=False)),
         firebase_project_id="test",
     )
     app = create_app(settings, token_verifier=verify)
     app.state.account_cloud = FakeCloud()  # 새 사용자 Firebase 확인을 가짜로 (실제 구글 호출 안 함)
-    app.state.storage = LocalStorage(tmp_path / "materials")
+    app.state.storage = STORAGE
     app.state.ocr_factory = fake_ocr
     app.state.llm_settings = None  # 기본은 키 없음
     yield app
@@ -112,14 +160,33 @@ async def new_project(client: httpx.AsyncClient, token: str = ALICE) -> str:
     return res.json()["id"]
 
 
+async def upload_url(
+    client: httpx.AsyncClient, project_id: str, name: str, size: int, token: str = ALICE
+) -> httpx.Response:
+    return await client.post(
+        f"{API_PREFIX}/projects/{project_id}/materials/upload-url",
+        json={"filename": name, "size": size},
+        headers=auth(token),
+    )
+
+
+async def complete(
+    client: httpx.AsyncClient, material_id: str, token: str = ALICE
+) -> httpx.Response:
+    return await client.post(
+        f"{API_PREFIX}/materials/{material_id}/upload-complete", headers=auth(token)
+    )
+
+
 async def upload(
     client: httpx.AsyncClient, project_id: str, name: str, data: bytes, token: str = ALICE
 ) -> httpx.Response:
-    return await client.post(
-        f"{API_PREFIX}/projects/{project_id}/materials",
-        files={"file": (name, data)},
-        headers=auth(token),
-    )
+    """화면과 같은 세 단계. 첫 단계에서 막히면 그 응답을 돌려준다."""
+    res = await upload_url(client, project_id, name, len(data), token)
+    if res.status_code != 200:
+        return res
+    STORAGE.put(res.json()["upload_url"], data)  # 브라우저가 저장소에 직접 PUT
+    return await complete(client, res.json()["material_id"], token)
 
 
 async def materials(client: httpx.AsyncClient, project_id: str, token: str = ALICE) -> list[dict]:
@@ -221,10 +288,10 @@ async def test_too_large_file_is_rejected(
     client: httpx.AsyncClient, project: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(materials_service, "MAX_FILE_BYTES", 1000)
-    monkeypatch.setattr(materials_api, "MAX_FILE_BYTES", 1000)
     res = await upload(client, project, "큰파일.pdf", b"%PDF-" + b"0" * 1000)
     assert res.status_code == 413
     assert res.json()["error"]["code"] == "file_too_large"
+    assert await materials(client, project) == []
 
 
 async def test_empty_file_is_rejected(client: httpx.AsyncClient, project: str) -> None:
@@ -232,13 +299,111 @@ async def test_empty_file_is_rejected(client: httpx.AsyncClient, project: str) -
     assert res.json()["error"]["code"] == "empty_file"
 
 
-async def test_missing_file_field_is_a_validation_error(
-    client: httpx.AsyncClient, project: str
-) -> None:
+async def test_missing_size_is_a_validation_error(client: httpx.AsyncClient, project: str) -> None:
     res = await client.post(
-        f"{API_PREFIX}/projects/{project}/materials", data={"x": "1"}, headers=auth(ALICE)
+        f"{API_PREFIX}/projects/{project}/materials/upload-url",
+        json={"filename": "강의.pdf"},
+        headers=auth(ALICE),
     )
     assert res.json()["error"]["code"] == "validation_error"
+
+
+# --- 업로드 세 단계 (architecture 7.1) ---
+
+
+async def test_upload_url_signs_type_and_size_limit(
+    client: httpx.AsyncClient, project: str
+) -> None:
+    res = await upload_url(client, project, "보고서.hwp", 1234)
+    assert res.status_code == 200
+    body = res.json()
+    # 브라우저가 형식을 모르는 HWP도 서버가 정한 형식으로 서명한다
+    assert body["required_headers"] == {
+        "Content-Type": "application/x-hwp",
+        "x-goog-content-length-range": "0,52428800",
+    }
+    assert body["material"]["status"] == "pending_upload"
+    [item] = await materials(client, project)
+    assert (item["id"], item["status"]) == (body["material_id"], "pending_upload")
+
+
+async def test_complete_before_upload_is_rejected_then_works(
+    client: httpx.AsyncClient, project: str
+) -> None:
+    res = await upload_url(client, project, "강의.pdf", 10)
+    material_id = res.json()["material_id"]
+    early = await complete(client, material_id)
+    assert (early.status_code, early.json()["error"]["code"]) == (409, "upload_missing")
+    [item] = await materials(client, project)
+    assert item["status"] == "pending_upload"  # 분석은 시작하지 않는다
+
+    STORAGE.put(res.json()["upload_url"], make_pdf(["프로세스"]))
+    assert (await complete(client, material_id)).status_code == 202
+    [item] = await materials(client, project)
+    assert item["status"] == "ready"
+
+
+async def test_complete_twice_does_not_analyze_twice(
+    app: FastAPI, client: httpx.AsyncClient, project: str
+) -> None:
+    queue = FakeQueue()
+    app.state.analysis_queue = queue
+    res = await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    again = await complete(client, res.json()["id"])
+    assert again.status_code == 202
+    assert len(queue.tasks) == 1
+
+
+async def test_actual_size_over_the_limit_fails(
+    client: httpx.AsyncClient, project: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 에뮬레이터는 크기 범위를 강제하지 않는다: 신고보다 큰 파일을 올린 경우
+    monkeypatch.setattr(materials_service, "MAX_FILE_BYTES", 1000)
+    res = await upload_url(client, project, "강의.pdf", 10)
+    STORAGE.put(res.json()["upload_url"], b"%PDF-" + b"0" * 1000)
+    done = await complete(client, res.json()["material_id"])
+    assert (done.json()["status"], done.json()["failure_code"]) == ("failed", "file_too_large")
+
+
+async def test_unconfigured_storage_gives_a_clear_error(
+    app: FastAPI, client: httpx.AsyncClient, project: str
+) -> None:
+    app.state.storage = UnconfiguredStorage()
+    res = await upload_url(client, project, "강의.pdf", 10)
+    assert (res.status_code, res.json()["error"]["code"]) == (503, "storage_unavailable")
+    assert await materials(client, project) == []
+
+
+def settings_for(**values: str) -> Settings:
+    return Settings(
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        database_url="x",
+        firebase_project_id="p",
+        **values,
+    )
+
+
+def test_storage_is_chosen_from_settings() -> None:
+    assert isinstance(make_storage(settings_for(gcs_bucket="dev-bucket")), GcsStorage)
+    emulator = settings_for(
+        gcs_emulator_url="http://gcs:4443", gcs_emulator_public_url="http://localhost:4443"
+    )
+    assert isinstance(make_storage(emulator), EmulatorStorage)
+    # 버킷이 있으면 에뮬레이터가 켜져 있어도 실제 버킷을 쓴다
+    both = settings_for(gcs_bucket="dev-bucket", gcs_emulator_url="http://gcs:4443")
+    assert isinstance(make_storage(both), GcsStorage)
+    assert isinstance(make_storage(settings_for()), UnconfiguredStorage)
+
+
+def test_emulator_upload_url_is_reachable_from_the_browser() -> None:
+    storage = EmulatorStorage("http://gcs:4443", "http://localhost:4443")
+    storage._bucket = object()  # 에뮬레이터 연결 없이 주소 모양만 본다
+    target = storage.upload_target("users/u/a b.pdf", "application/pdf", 100)
+    assert target.url == (
+        "http://localhost:4443/feynmi-local/users%2Fu%2Fa%20b.pdf"
+        "?uploadType=media&name=users%2Fu%2Fa%20b.pdf"
+    )
+    assert target.headers["Content-Type"] == "application/pdf"
 
 
 # --- 분석 단계에서 실패하는 예외 (FR-1.4, FR-1.7) ---
@@ -510,68 +675,162 @@ def test_instructions_keep_prd_rules() -> None:
         assert rule in CONCEPT_EXTRACTION_INSTRUCTIONS
 
 
-def test_storage_key_cannot_escape_root(tmp_path: Path) -> None:
-    storage = LocalStorage(tmp_path / "materials")
-    with pytest.raises(ValueError):
-        storage.save("../outside.txt", b"x")
+# --- 멈춘 작업 (architecture 7.1) ---
 
 
-# --- 서버 재시작 ---
-
-
-async def test_server_restart_marks_interrupted_analyses_as_failed(
-    app: FastAPI, client: httpx.AsyncClient, project: str, engine: AsyncEngine
+async def test_stalled_analysis_is_reported_as_failed_and_can_retry(
+    client: httpx.AsyncClient, project: str, engine: AsyncEngine
 ) -> None:
     await upload(client, project, "완료.pdf", make_pdf(["끝난 자료"]))
-    await upload(client, project, "도중.pdf", make_pdf(["분석 도중 서버가 꺼진 자료"]))
-    async with make_session_factory(engine)() as db:  # 분석 도중에 서버가 꺼진 상황
+    await upload(client, project, "도중.pdf", make_pdf(["분석 도중 멈춘 자료"]))
+    await upload(client, project, "방금.pdf", make_pdf(["막 시작한 자료"]))
+    async with make_session_factory(engine)() as db:
+        old = datetime.now(UTC) - timedelta(minutes=31)
         await db.execute(
-            update(Material).where(Material.title == "도중.pdf").values(status="extracting")
+            update(Material)
+            .where(Material.title == "도중.pdf")
+            .values(status="extracting", updated_at=old)
+        )
+        await db.execute(
+            update(Material).where(Material.title == "방금.pdf").values(status="extracting")
         )
         await db.commit()
-
-    async with app.router.lifespan_context(app):  # 서버 다시 켜기
-        pass
 
     by_title = {m["title"]: m for m in await materials(client, project)}
     assert (by_title["도중.pdf"]["status"], by_title["도중.pdf"]["failure_code"]) == (
         "failed",
         "internal_error",
     )
-    assert by_title["완료.pdf"]["status"] == "ready"  # 끝난 자료는 그대로
+    assert by_title["방금.pdf"]["status"] == "extracting"  # 데드라인 전이면 그대로
+    assert by_title["완료.pdf"]["status"] == "ready"
     retry = await client.post(
         f"{API_PREFIX}/materials/{by_title['도중.pdf']['id']}/retry", headers=auth(ALICE)
     )
     assert retry.status_code == 202
-    assert {m["title"]: m["status"] for m in await materials(client, project)}[
-        "도중.pdf"
-    ] == "ready"
+    statuses = {m["title"]: m["status"] for m in await materials(client, project)}
+    assert statuses["도중.pdf"] == "ready"
+
+
+# --- Cloud Tasks 모드 (architecture 7.1, 8.1 /internal) ---
+
+
+def accept_token(token: str) -> None:
+    if token != "task-token":
+        raise AppError(403, "forbidden", "unexpected caller")
+
+
+@pytest.fixture
+def queue(app: FastAPI) -> FakeQueue:
+    fake = FakeQueue()
+    app.state.analysis_queue = fake
+    app.state.task_token_verifier = accept_token
+    return fake
+
+
+async def run_task(
+    client: httpx.AsyncClient, material_id: str, attempt: int, token: str = "task-token"
+) -> httpx.Response:
+    return await client.post(
+        f"{API_PREFIX}/internal/tasks/analyze-material",
+        json={"material_id": material_id, "attempt": attempt},
+        headers={"Authorization": f"Bearer {token}"} if token else {},
+    )
+
+
+async def test_cloud_tasks_mode_enqueues_and_worker_analyzes(
+    queue: FakeQueue, client: httpx.AsyncClient, project: str
+) -> None:
+    res = await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    assert res.json()["status"] == "queued"
+    [(material_id, attempt)] = queue.tasks
+    [item] = await materials(client, project)
+    assert item["status"] == "queued"  # 큐가 부르기 전에는 분석하지 않는다
+
+    assert (await run_task(client, str(material_id), attempt)).status_code == 200
+    [item] = await materials(client, project)
+    assert (item["status"], item["page_count"]) == ("ready", 1)
+
+    # 같은 작업이 다시 와도(재전달) 이미 끝났으면 무시한다
+    assert (await run_task(client, str(material_id), attempt)).status_code == 200
+    assert (await materials(client, project))[0]["status"] == "ready"
+
+
+async def test_worker_requires_the_task_token(
+    queue: FakeQueue, client: httpx.AsyncClient, project: str
+) -> None:
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    [(material_id, attempt)] = queue.tasks
+    assert (await run_task(client, str(material_id), attempt, token="")).status_code == 401
+    assert (await run_task(client, str(material_id), attempt, token=ALICE)).status_code == 403
+    assert (await materials(client, project))[0]["status"] == "queued"
+
+
+async def test_worker_reruns_after_an_interrupted_delivery(
+    queue: FakeQueue, client: httpx.AsyncClient, project: str, engine: AsyncEngine
+) -> None:
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    [(material_id, attempt)] = queue.tasks
+    async with make_session_factory(engine)() as db:  # 분석 도중 인스턴스가 끊긴 상황
+        await db.execute(update(Material).values(status="extracting"))
+        await db.commit()
+    await run_task(client, str(material_id), attempt)
+    assert (await materials(client, project))[0]["status"] == "ready"
+
+
+async def test_old_attempt_is_ignored(
+    queue: FakeQueue, client: httpx.AsyncClient, project: str
+) -> None:
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    [(material_id, attempt)] = queue.tasks
+    await run_task(client, str(material_id), attempt + 5)
+    assert (await materials(client, project))[0]["status"] == "queued"
+
+
+async def test_enqueue_failure_marks_the_material_failed(
+    queue: FakeQueue, client: httpx.AsyncClient, project: str
+) -> None:
+    queue.fail = True
+    res = await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    assert res.status_code == 202
+    [item] = await materials(client, project)
+    assert (item["status"], item["failure_code"]) == ("failed", "internal_error")
+
+
+async def test_worker_path_is_closed_in_inline_mode(
+    client: httpx.AsyncClient, project: str
+) -> None:
+    res = await run_task(client, str(uuid.uuid4()), 1)
+    assert res.status_code == 404
+
+
+def test_cloud_tasks_mode_needs_its_settings() -> None:
+    assert make_queue(settings_for()) is None  # 기본은 inline
+    with pytest.raises(ValueError, match="TASKS_QUEUE"):
+        CloudTasksQueue(settings_for(queue_mode="cloud_tasks", tasks_project="p"))
 
 
 # --- 뽑힌 글자 보기: DB에 저장된 글자 / 원본이 사라진 경우 ---
 
 
 async def test_pages_come_from_db_without_rereading_the_original(
-    app: FastAPI, client: httpx.AsyncClient, project: str, tmp_path: Path
+    app: FastAPI, client: httpx.AsyncClient, project: str
 ) -> None:
     await upload(client, project, "사진.png", png())
     [item] = await materials(client, project)
-    for original in (tmp_path / "materials").rglob("original.*"):
-        original.unlink()  # 원본이 사라져도
+    STORAGE.files.clear()  # 원본이 사라져도
     app.state.ocr_factory = lambda _=None: None  # OCR 없이도
     res = await client.get(f"{API_PREFIX}/materials/{item['id']}/pages", headers=auth(ALICE))
     assert res.json()["pages"] == [{"number": 1, "text": "사진 속 프로세스 상태도"}]
 
 
 async def test_old_material_without_saved_text_and_original_reports_missing(
-    client: httpx.AsyncClient, project: str, tmp_path: Path, engine: AsyncEngine
+    client: httpx.AsyncClient, project: str, engine: AsyncEngine
 ) -> None:
     await upload(client, project, "강의.pdf", make_pdf(["본문"]))
     [item] = await materials(client, project)
     async with make_session_factory(engine)() as db:  # 글자 저장 기능 전에 분석된 자료
         await db.execute(update(Material).values(page_texts=None))
         await db.commit()
-    for original in (tmp_path / "materials").rglob("original.*"):
-        original.unlink()
+    STORAGE.files.clear()
     res = await client.get(f"{API_PREFIX}/materials/{item['id']}/pages", headers=auth(ALICE))
     assert (res.status_code, res.json()["error"]["code"]) == (409, "original_missing")
