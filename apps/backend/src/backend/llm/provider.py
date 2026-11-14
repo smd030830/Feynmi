@@ -58,7 +58,8 @@ class LLMProvider(Protocol):
 
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
-    async def read_image_text(self, image: bytes, mime_type: str) -> str: ...
+    # 이미지 글자 읽기(read_image_text)는 OCR 쪽 규약(ingest.ocr.ImageTextReader)으로 따로 둔다.
+    # 모든 제공자(시험용 가짜 포함)가 구현해야 하는 공용 규약에는 넣지 않는다.
 
 
 def validate_embedding(value: object) -> list[float]:

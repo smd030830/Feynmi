@@ -196,7 +196,7 @@ class OcrOutcome:
 
 
 class ImageTextReader(Protocol):
-    """AI 보조 판독기. LLMProvider.read_image_text와 같은 모양이다."""
+    """AI 보조 판독기. OpenAIProvider.read_image_text가 이 모양을 따른다."""
 
     async def read_image_text(self, image: bytes, mime_type: str) -> str: ...
 
