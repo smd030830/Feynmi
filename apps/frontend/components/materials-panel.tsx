@@ -21,6 +21,7 @@ import {
 // 업로드 화면 (PRD FR-1.1, 1.7, 1.8). 형식·용량 검사는 서버가 한다(예외 시험을 위해 화면에서 미리 막지 않음).
 const ACCEPT = ".pdf,.pptx,.png,.jpg,.jpeg,.heic,.heif,.txt,.docx,.hwp,.hwpx";
 const POLL_MS = 2000;
+const UPLOAD_PARALLEL = 3;
 const IN_PROGRESS: MaterialStatus[] = ["pending_upload", "queued", "extracting", "generating_concepts"];
 
 const STATUS_LABEL: Record<MaterialStatus, string> = {
@@ -76,21 +77,28 @@ export function MaterialsPanel({
     return () => clearInterval(timer);
   }, [busy, refresh]);
 
+  async function sendOne(file: File) {
+    try {
+      await uploadMaterial(projectId, file);
+    } catch (error) {
+      setNotices((list) => [
+        { id: Date.now() + Math.random(), name: file.name, message: apiErrorMessage(error) },
+        ...list,
+      ]);
+    } finally {
+      setUploading((n) => n - 1);
+    }
+    await refresh();
+  }
+
+  // 파일마다 업로드 세 단계를 따로 실행하고, 동시에 올리는 수는 UPLOAD_PARALLEL개로 제한한다 (architecture 7.1)
   async function send(files: File[]) {
     setUploading((n) => n + files.length);
-    for (const file of files) {
-      try {
-        await uploadMaterial(projectId, file);
-      } catch (error) {
-        setNotices((list) => [
-          { id: Date.now() + Math.random(), name: file.name, message: apiErrorMessage(error) },
-          ...list,
-        ]);
-      } finally {
-        setUploading((n) => n - 1);
-      }
-      await refresh();
-    }
+    const queue = [...files];
+    const worker = async () => {
+      for (let file = queue.shift(); file; file = queue.shift()) await sendOne(file);
+    };
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_PARALLEL, files.length) }, worker));
   }
 
   function start(files: File[]) {

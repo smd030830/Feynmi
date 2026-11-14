@@ -90,6 +90,9 @@ const MESSAGES: Record<string, string> = {
   file_too_large: "파일이 너무 큽니다. 파일당 50MB까지 올릴 수 있어요.",
   empty_file: "빈 파일입니다. 내용이 있는 파일을 올려주세요.",
   original_missing: "보관된 원본 파일을 찾을 수 없어요. 자료를 다시 올려주세요.",
+  upload_failed: "파일을 올리지 못했어요. 네트워크를 확인한 뒤 다시 올려주세요.",
+  upload_missing: "파일 업로드가 끝나지 않았어요. 다시 올려주세요.",
+  storage_unavailable: "자료 저장소가 설정되지 않았어요. 관리자에게 문의해주세요.",
 };
 
 // 분석 실패 사유 (materials.failure_code, PRD FR-1.4, FR-1.7)
@@ -267,13 +270,40 @@ export function listMaterials(projectId: string) {
   return apiFetch<{ items: Material[] }>(`/projects/${encodeURIComponent(projectId)}/materials`);
 }
 
-export function uploadMaterial(projectId: string, file: File) {
-  const body = new FormData();
-  body.append("file", file);
-  return apiFetch<Material>(`/projects/${encodeURIComponent(projectId)}/materials`, {
-    method: "POST",
-    body,
-  });
+type UploadUrl = {
+  material_id: string;
+  upload_url: string;
+  required_headers: Record<string, string>; // 서명에 포함된 헤더. PUT에 그대로 붙인다
+  material: Material;
+};
+
+// 업로드 세 단계 (architecture 7.1): 주소 받기 → 저장소에 직접 PUT → 완료 알림(분석 시작)
+export async function uploadMaterial(projectId: string, file: File) {
+  const target = await apiFetch<UploadUrl>(
+    `/projects/${encodeURIComponent(projectId)}/materials/upload-url`,
+    {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, size: file.size, content_type: file.type }),
+    },
+  );
+  let put: Response;
+  try {
+    put = await fetch(target.upload_url, {
+      method: "PUT",
+      headers: target.required_headers,
+      body: file,
+    });
+  } catch {
+    throw new ApiError(0, "upload_failed", "storage upload request failed");
+  }
+  if (!put.ok) {
+    // 서명된 크기 범위를 넘으면 저장소가 거절한다
+    throw new ApiError(put.status, put.status === 400 ? "file_too_large" : "upload_failed", put.statusText);
+  }
+  return apiFetch<Material>(
+    `/materials/${encodeURIComponent(target.material_id)}/upload-complete`,
+    { method: "POST" },
+  );
 }
 
 export function retryMaterial(materialId: string) {
