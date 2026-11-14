@@ -5,6 +5,7 @@
 
 import asyncio
 import base64
+import logging
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -13,10 +14,22 @@ from typing import Any, Protocol
 
 import httpx
 import tiktoken
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from backend.db.models import EMBEDDING_DIMENSIONS
 from backend.llm.config import LLMSettings
+
+logger = logging.getLogger(__name__)
+
+
+def _failure_reason(exc: Exception) -> str:
+    """재시도 이유를 기록용으로 줄인다. 학습자 답·자료 글자·키는 남기지 않는다."""
+    if isinstance(exc, ValidationError):  # 스키마 불일치: 위치와 종류만 (입력값은 뺀다)
+        where = [".".join(map(str, e["loc"])) + ":" + e["type"] for e in exc.errors()[:3]]
+        return f"schema {where}"
+    if isinstance(exc, httpx.TransportError):
+        return f"network {type(exc).__name__}"
+    return f"{type(exc).__name__}: {str(exc)[:160]}"
 
 
 class LLMTask(StrEnum):
@@ -127,7 +140,15 @@ class OpenAIProvider:
                 if response.is_error:
                     raise LLMError(f"OpenAI request rejected (HTTP {response.status_code})")
                 return parse(response.json())
-            except httpx.TransportError, ValueError, KeyError, TypeError, AttributeError:
+            except (httpx.TransportError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                # 왜 다시 시도했는지 남긴다 (모든 시도가 실패하면 원인을 알 수 없어서)
+                logger.warning(
+                    "LLM %s attempt %d/%d failed: %s",
+                    path,
+                    attempt + 1,
+                    self.settings.llm_max_retries + 1,
+                    _failure_reason(exc),
+                )
                 if attempt == self.settings.llm_max_retries:
                     raise LLMError("OpenAI request or output validation failed") from None
                 # ValueError includes Pydantic and caller-provided semantic validation failures.

@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 from uuid import uuid4
 
@@ -364,3 +365,41 @@ async def test_base_url_points_to_openai_compatible_service() -> None:
     assert settings(llm_base_url="").llm_base_url == "https://api.openai.com/v1"
     with pytest.raises(ValidationError):
         settings(llm_base_url="http://openrouter.ai/api/v1")
+
+
+async def test_retry_reasons_are_logged_without_content() -> None:
+    """모든 시도가 실패해도 이유는 남고, 응답 속 글자(학습자 답 등)는 남기지 않는다."""
+    replies = iter([{"value": "비밀 답변 문장"}, {"value": 1}])
+
+    def handle(_: httpx.Request) -> httpx.Response:
+        return response(next(replies))
+
+    async def sleep(_: float) -> None:
+        return None
+
+    def validate(_: Answer) -> None:
+        raise ValueError("learner quote is not present in session answers")
+
+    # 다른 시험의 로깅 설정과 상관없이 이 로거의 기록을 직접 받는다
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler(logging.WARNING)
+    handler.emit = records.append  # type: ignore[method-assign]
+    target = logging.getLogger("backend.llm.provider")
+    target.addHandler(handler)
+    old_level, old_disabled = target.level, target.disabled
+    target.setLevel(logging.WARNING)
+    target.disabled = False
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            provider = OpenAIProvider(settings(llm_max_retries=1), client, sleep=sleep)
+            with pytest.raises(LLMError):
+                await generate(provider, validate=validate)
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(old_level)
+        target.disabled = old_disabled
+    messages = [r.getMessage() for r in records]
+    assert len(messages) == 2
+    assert "attempt 1/2" in messages[0] and "schema ['value:" in messages[0]
+    assert "attempt 2/2" in messages[1] and "learner quote is not present" in messages[1]
+    assert all("비밀" not in m for m in messages)
