@@ -1,4 +1,9 @@
-"""PDF에서 쪽별 텍스트를 추출한다 (pypdf, PRD 9.1).
+"""PDF에서 쪽별 텍스트를 추출한다 (PRD 9.1).
+
+파일 검사·암호 확인·박힌 그림은 pypdf, 글자는 PDFium(pypdfium2)으로 읽는다.
+PDF 속 띄어쓰기는 공백 글자 없이 글자 간격으로만 들어 있는 경우가 많은데(강의 슬라이드 등),
+pypdf는 이를 공백으로 못 바꿔 "적절한권한을가진…"처럼 붙여 버린다. PDFium은 간격을 보고
+공백을 넣으며, 2단 문서도 쓰인 순서대로 읽는다. PDFium이 못 읽는 쪽은 pypdf 결과를 쓴다.
 
 OCR을 쓸 때는 쪽마다 그림도 내놓는다.
 - 글자가 없는 쪽(스캔본): 쪽 전체를 그림으로 그려(pypdfium2) 읽는다.
@@ -6,6 +11,7 @@ OCR을 쓸 때는 쪽마다 그림도 내놓는다.
 """
 
 import logging
+import re
 import threading
 from collections.abc import Iterator
 from functools import cached_property, partial
@@ -37,6 +43,8 @@ _RENDER_DPI = 300
 _RENDER_MAX_SIDE = 4000
 # PDFium은 여러 작업 줄에서 동시에 부르면 안 된다 (자료 여러 개를 동시에 분석할 때)
 _PDFIUM_LOCK = threading.Lock()
+# 글자로 의미가 없는 문자: 제어 문자(줄바꿈·탭 제외), 글꼴 전용 영역(장식 기호가 U+F000 등으로 나옴)
+_JUNK_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f-￾￿]")
 
 
 def _open(data: bytes) -> PdfReader:
@@ -57,15 +65,25 @@ def _open(data: bytes) -> PdfReader:
     return reader
 
 
-def _page_text(page: PageObject, number: int) -> str:
+def _clean(text: str) -> str:
+    return normalize_text(_JUNK_CHARS.sub("", text))
+
+
+def _page_text(page: PageObject, number: int, pdfium: _Pdfium) -> str:
+    text = pdfium.text(number - 1)
+    if text:
+        return text
     try:
-        return normalize_text(page.extract_text())
+        return _clean(page.extract_text())
     except Exception as exc:
         raise IngestError(FailureCode.CORRUPTED_FILE, f"page {number}") from exc
 
 
-class _PdfImages:
-    """쪽 그림을 필요할 때 하나씩 만든다 (300쪽 그림을 한꺼번에 메모리에 올리지 않는다)."""
+class _Pdfium:
+    """PDFium으로 쪽 글자를 읽고, 쪽 그림은 필요할 때 하나씩 만든다.
+
+    300쪽 그림을 한꺼번에 메모리에 올리지 않는다.
+    """
 
     def __init__(self, data: bytes) -> None:
         self.data = data
@@ -73,6 +91,16 @@ class _PdfImages:
     @cached_property
     def document(self) -> pypdfium2.PdfDocument:
         return pypdfium2.PdfDocument(self.data)
+
+    def text(self, index: int) -> str:
+        """쪽 글자. 못 읽으면 빈 문자열 (pypdf 결과로 대신한다)."""
+        try:
+            with _PDFIUM_LOCK:
+                text = self.document[index].get_textpage().get_text_range()
+        except Exception:
+            logger.info("PDFium could not read text of page %d", index + 1)
+            return ""
+        return _clean(text)
 
     def render(self, index: int) -> Iterator[Image.Image]:
         try:
@@ -107,14 +135,14 @@ class _PdfImages:
 def pdf_raw_pages(data: bytes) -> list[RawPage]:
     """모든 쪽을 1부터 번호 붙여 반환한다. 텍스트가 없는 쪽도 번호를 유지하려고 포함한다."""
     reader = _open(data)
-    images = _PdfImages(data)
+    pdfium = _Pdfium(data)
     pages: list[RawPage] = []
     for number, page in enumerate(reader.pages, start=1):
-        text = _page_text(page, number)
+        text = _page_text(page, number, pdfium)
         if text:
-            loader = partial(images.embedded, page, number)
+            loader = partial(pdfium.embedded, page, number)
         else:
-            loader = partial(images.render, number - 1)
+            loader = partial(pdfium.render, number - 1)
         pages.append(RawPage(number, text, loader))
     return pages
 

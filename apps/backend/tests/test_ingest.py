@@ -28,12 +28,28 @@ from backend.rag.store import embed_chunks
 # --- 테스트 자료 생성 ---------------------------------------------------------
 
 
+Run = tuple[float, float, str]  # 글자 묶음을 놓을 위치(x, y)와 글자
+
+
 def make_pdf(pages: list[str]) -> bytes:
     """쪽마다 주어진 텍스트를 가진 텍스트 PDF. 빈 문자열은 텍스트 없는 쪽이 된다.
 
     한글을 추출할 수 있도록 글자별 ToUnicode 매핑을 넣는다(글꼴 파일은 넣지 않음).
     """
-    chars = sorted({c for text in pages for c in text if c != "\n"})
+    return make_placed_pdf(
+        [
+            [(50, 750 - 20 * j, line) for j, line in enumerate(text.split("\n")) if line]
+            for text in pages
+        ]
+    )
+
+
+def make_placed_pdf(pages: list[list[Run]]) -> bytes:
+    """글자 묶음을 정한 자리에 놓는다. 공백 글자 없이 간격만 둔 띄어쓰기, 2단 배치를 만들 때 쓴다.
+
+    글자 하나의 폭은 글자 크기(12pt)와 같다(/DW 1000).
+    """
+    chars = sorted({c for runs in pages for _, _, text in runs for c in text})
     code = {c: i + 1 for i, c in enumerate(chars)}
     entries = [f"<{code[c]:04X}> <{c.encode('utf-16-be').hex().upper()}>" for c in chars]
     blocks = [entries[i : i + 100] for i in range(0, len(entries), 100)]
@@ -54,11 +70,10 @@ def make_pdf(pages: list[str]) -> bytes:
         b"/DW 1000 >>] /ToUnicode 4 0 R >>",
         b"<< /Length %d >>\nstream\n" % len(cmap) + cmap + b"\nendstream",
     ]
-    for i, text in enumerate(pages):
+    for i, runs in enumerate(pages):
         content = "\n".join(
-            f"BT /F1 12 Tf 50 {750 - 20 * j} Td <{''.join(f'{code[c]:04X}' for c in line)}> Tj ET"
-            for j, line in enumerate(text.split("\n"))
-            if line
+            f"BT /F1 12 Tf {x} {y} Td <{''.join(f'{code[c]:04X}' for c in text)}> Tj ET"
+            for x, y, text in runs
         ).encode()
         objects.append(
             f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
@@ -128,6 +143,31 @@ def test_pdf_keeps_korean_symbols_and_page_numbers_with_empty_page() -> None:
     assert pages[0].text == "운영체제 1장: 프로세스\nO(n log n) ≤ ∑ α"
     assert pages[1].text == ""
     assert pages[2].text == "3쪽 English mix"
+
+
+def test_pdf_spaces_stored_as_gaps_are_restored() -> None:
+    # 실제 강의 PDF: 띄어쓰기가 공백 글자 없이 글자 간격으로만 들어 있었다
+    # ("적절한권한을가진…"으로 붙어 나오던 문제)
+    words = ["적절한", "권한을", "가진", "인가자만이"]
+    runs: list[Run] = []
+    x = 50.0
+    for word in words:
+        runs.append((x, 700, word))
+        x += 12 * len(word) + 6  # 반 글자 간격
+    assert extract_pdf_pages(make_placed_pdf([runs]))[0].text == "적절한 권한을 가진 인가자만이"
+
+
+def test_pdf_two_columns_are_read_column_by_column() -> None:
+    left: list[Run] = [(50.0, 700 - 20 * i, f"왼쪽 단 {i}번째 줄") for i in range(1, 4)]
+    right: list[Run] = [(330.0, 700 - 20 * i, f"오른쪽 단 {i}번째 줄") for i in range(1, 4)]
+    text = extract_pdf_pages(make_placed_pdf([left + right]))[0].text
+    assert text.splitlines() == [t for _, _, t in left + right]
+
+
+def test_pdf_private_use_symbols_are_dropped() -> None:
+    # 장식 글꼴의 기호가 글꼴 전용 영역(U+F000 등)으로 나오던 문제 (대회 공고 PDF)
+    text = extract_pdf_pages(make_pdf([" 1. 참가 안내"]))[0].text
+    assert text == "1. 참가 안내"
 
 
 def test_pdf_without_text_is_no_extractable_text() -> None:
