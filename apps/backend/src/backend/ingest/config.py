@@ -17,6 +17,9 @@ class OCRSettings(BaseSettings):
     ocr_lang: str = "kor+eng"
     # 그림 한 장을 읽는 시간 상한(초). 넘으면 그 그림은 못 읽은 것으로 본다 (데드라인 보호)
     ocr_timeout_seconds: int = Field(default=60, ge=1)
+    # 서버 전체에서 동시에 돌리는 Tesseract 수. 0이면 CPU 수만큼
+    # (자리를 기다리는 시간은 위 시간 상한에 들어가지 않는다)
+    ocr_max_parallel: int = Field(default=0, ge=0)
     # 이보다 작은 그림(가로나 세로, 픽셀)은 아이콘·장식으로 보고 읽지 않는다
     ocr_min_image_side: int = Field(default=100, ge=1)
     # 자료 하나에서 OCR할 그림 수 상한 (분석 데드라인 30분 보호, architecture 7.1)

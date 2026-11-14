@@ -6,8 +6,10 @@
 import asyncio
 import io
 import logging
+import os
 import re
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
@@ -69,6 +71,22 @@ def prepare(image: Image.Image) -> Image.Image:
     return image
 
 
+# Tesseract는 OpenMP로 CPU 여러 개를 쓴다. 여러 그림을 동시에 읽을 때 서로 CPU를 빼앗아 느려지므로
+# 실행 하나는 CPU 1개만 쓰게 하고, 동시에 도는 개수(_tesseract_slots)로 전체 사용량을 맞춘다.
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+_SLOTS_LOCK = threading.Lock()
+_slots: threading.BoundedSemaphore | None = None
+
+
+def _tesseract_slots(settings: OCRSettings) -> threading.BoundedSemaphore:
+    """서버 전체에서 동시에 돌 수 있는 Tesseract 수 (처음 부를 때 한 번 정한다)."""
+    global _slots
+    with _SLOTS_LOCK:
+        if _slots is None:
+            _slots = threading.BoundedSemaphore(settings.ocr_max_parallel or os.cpu_count() or 2)
+        return _slots
+
+
 class TesseractEngine:
     def __init__(self, settings: OCRSettings | None = None) -> None:
         self.settings = settings or OCRSettings()
@@ -118,20 +136,25 @@ class TesseractEngine:
             source = Path(folder) / "in.png"
             out = Path(folder) / "out"
             image.save(source)
-            try:
-                pytesseract.pytesseract.run_tesseract(
-                    str(source),
-                    str(out),
-                    extension="txt",
-                    lang=self.settings.ocr_lang,
-                    config=f"{psm} -c tessedit_create_tsv=1",
-                    timeout=self.settings.ocr_timeout_seconds,
-                )
-            except (pytesseract.TesseractNotFoundError, OSError) as e:
-                raise OcrUnavailableError("tesseract is not installed") from e
-            except RuntimeError:  # 시간 초과: 이 그림은 못 읽은 것으로 본다
-                logger.info("tesseract timed out")
-                return OcrResult("", None)
+            # 동시 실행 수를 제한한다. 자리를 기다리는 시간은 시간 제한에 넣지 않는다
+            # (자료 5개를 동시에 분석하면 CPU를 나눠 쓰다 정상 그림도 60초를 넘겨 빈 결과가 됐다).
+            with _tesseract_slots(self.settings):
+                try:
+                    pytesseract.pytesseract.run_tesseract(
+                        str(source),
+                        str(out),
+                        extension="txt",
+                        lang=self.settings.ocr_lang,
+                        config=f"{psm} -c tessedit_create_tsv=1",
+                        timeout=self.settings.ocr_timeout_seconds,
+                    )
+                except (pytesseract.TesseractNotFoundError, OSError) as e:
+                    raise OcrUnavailableError("tesseract is not installed") from e
+                except RuntimeError:  # 시간 초과: 이 그림은 못 읽은 것으로 본다
+                    logger.warning(
+                        "tesseract timed out after %ss (%s)", self.settings.ocr_timeout_seconds, psm
+                    )
+                    return OcrResult("", None)
             text = out.with_suffix(".txt").read_text(encoding="utf-8")
             tsv = out.with_suffix(".tsv").read_text(encoding="utf-8")
         return reliable_result(text, tsv, self.settings.ocr_min_line_confidence)
