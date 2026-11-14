@@ -398,6 +398,24 @@
 - 비용: 화면 시험과 다시 읽기를 합쳐 약 $0.06. 전체 시험 358개 통과, ruff 통과.
 - 화면 재확인 (새 프로젝트에 세 파일 다시 올림): 글자 보기와 DB `chunks.text` 모두 PPTX 2·4·6쪽이 원본 코드와 같다. 쪽·조각 PPTX 16/16, HWP 7/14, HWPX 5/8, 임베딩 1536차원, 다른 자료를 가리키는 근거 0개. 남은 것: Unity 편집기 화면 캡처(13·14쪽)는 화면 글자가 섞여 읽힌다(고칠 목록 G).
 
+## 17. 2026-11-15 · 업로드를 설계대로(Signed URL, 작업 큐) 변경
+
+### 바꾼 것 (`2eca366`, `6d0ff53`, `e287db5`, `ff29ef7`)
+- 백엔드가 파일을 직접 받던 방식을 architecture 7.1 세 단계로 바꿨다: `upload-url` → 저장소에 직접 PUT → `upload-complete`.
+- 원본 보관: `GCS_BUCKET`이 있으면 실제 버킷(Signed URL에 형식·크기 범위 서명), 없으면 compose의 GCS 에뮬레이터(fake-gcs-server 1.52.2). 로컬 폴더 방식 제거.
+- 분석 전달: `QUEUE_MODE=inline`(로컬, 같은 프로세스) / `cloud_tasks`(Cloud Tasks 등록, `/internal/tasks/analyze-material`이 OIDC 토큰 확인).
+- 멈춘 작업: 서버 재시작 때 일괄 실패 처리 대신 목록 조회 때 30분 넘긴 진행 상태를 실패 처리.
+- 모듈 위치를 architecture 3장대로 `storage/`, `queue/`로. `Backend start` 스크립트가 db·gcs·backend를 `--build`로 함께 켠다. README에 시험 방법 추가.
+
+### 시험
+- 자동: 전체 371개 통과(업로드 세 단계, 업로드 전 완료 요청 409, 완료 중복 시 작업 1번, 실제 크기 초과 실패, 저장소 설정 없음 503, 보관소 선택, 에뮬레이터 주소, 멈춘 작업, Cloud Tasks 등록·토큰 없음 401·다른 호출자 403·재전달 재실행·다른 시도 무시·등록 실패 처리, inline에서 작업 경로 404). ruff, pyright, 프론트 tsc·lint 통과.
+- 에뮬레이터 실제 흐름(HTTP로 세 단계 → 분석 → DB, 실제 OCR·AI): TXT 1쪽/조각 1, DOCX 6쪽/조각 16(이전과 같음), 임베딩 1536차원, 개념 9개. 완료 중복 202(재분석 없음), 업로드 전 완료 409 `upload_missing`. 에뮬레이터 CORS 사전 요청(localhost:3000, PUT, 서명 헤더) 200. 임시 사용자와 에뮬레이터 객체는 시험 뒤 삭제.
+- `Backend start` 스크립트: 캐시로 몇 초 만에 빌드, db·gcs·backend 모두 healthy.
+
+### 확인 못 한 것 (실제 클라우드 필요)
+- 실제 GCS의 Signed URL 서명 검증과 크기 범위 거절, 버킷 CORS·IAM 서명 권한, Cloud Tasks 실제 호출.
+- 이전에 로컬 폴더에 보관했던 자료는 원본이 에뮬레이터에 없어 재시도할 수 없다(로컬 개발 DB 한정).
+
 ---
 
 ## 고칠 목록 (2026-11-14 기준)
