@@ -19,7 +19,7 @@ import {
 } from "@/lib/api";
 
 // 업로드 화면 (PRD FR-1.1, 1.7, 1.8). 형식·용량 검사는 서버가 한다(예외 시험을 위해 화면에서 미리 막지 않음).
-const ACCEPT = ".pdf,.pptx,.png,.jpg,.jpeg";
+const ACCEPT = ".pdf,.pptx,.png,.jpg,.jpeg,.txt,.docx,.hwp,.hwpx";
 const POLL_MS = 2000;
 const IN_PROGRESS: MaterialStatus[] = ["pending_upload", "queued", "extracting", "generating_concepts"];
 
@@ -140,7 +140,7 @@ export function MaterialsPanel({
             학습자료
           </h2>
           <p className="text-caption text-subtle">
-            PDF · PPTX · PNG · JPG 자료를 올리면 글자를 추출해 학습을 준비해요.
+            PDF · PPTX · 한글(HWP) · 워드 · TXT · 이미지 자료를 올리면 글자를 추출해 학습을 준비해요.
           </p>
         </div>
         <Button onClick={() => input.current?.click()} disabled={uploading > 0}>
@@ -177,7 +177,7 @@ export function MaterialsPanel({
         </span>
         <p className="mt-3 text-body font-semibold text-text">여기에 파일을 끌어다 놓으세요</p>
         <p className="mt-1 text-caption text-subtle">
-          PDF · PPTX · PNG · JPG, 파일당 50MB, 300쪽/슬라이드까지. 여러 파일을 한 번에 올릴 수 있어요.
+          PDF · PPTX · HWP · HWPX · DOCX · TXT · PNG · JPG, 파일당 50MB, 300쪽/슬라이드까지. 여러 파일을 한 번에 올릴 수 있어요.
         </p>
       </div>
 

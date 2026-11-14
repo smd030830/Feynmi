@@ -1,5 +1,6 @@
 """자료 파서 공통 규칙: 실패 코드, 업로드 상한, 텍스트 정리 (PRD FR-1.2, FR-1.4)."""
 
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
@@ -42,9 +43,14 @@ def check_page_count(count: int) -> None:
         raise IngestError(FailureCode.TOO_MANY_PAGES, f"{count} pages")
 
 
+# 글자로 의미가 없는 문자: 제어 문자(줄바꿈·탭 제외, NUL은 PostgreSQL text에 저장 불가),
+# 글꼴 전용 영역(PDF 장식 기호 U+F000, 한글 문서의 기호 U+F0099 등)
+_JUNK_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f-￾￿\U000f0000-\U0010ffff]")
+
+
 def normalize_text(text: str) -> str:
-    """줄바꿈을 통일하고 PostgreSQL text에 저장할 수 없는 NUL 문자를 지운다."""
-    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").strip()
+    """줄바꿈을 통일하고 저장·검색에 쓸모없는 문자를 지운다."""
+    return _JUNK_CHARS.sub("", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
 
 
 def ensure_extractable(pages: Sequence[PageText]) -> list[PageText]:

@@ -1,8 +1,8 @@
 """학습자료 원본 → 쪽/슬라이드별 텍스트 (architecture 7.1 `extracting` 단계).
 
 결과는 `backend.rag.chunking.split_pages`의 입력이다.
-- `extract_pages`: 글자만 뽑는다 (OCR 없음, PDF/PPTX).
-- `read_material`: 그림 속 글자까지 OCR로 읽는다 (PNG/JPG, 스캔 PDF, PDF·PPTX 속 그림).
+- `extract_pages`: 글자만 뽑는다 (OCR 없음, PDF/PPTX/TXT/DOCX/HWP/HWPX).
+- `read_material`: 그림 속 글자까지 OCR로 읽는다 (PNG/JPG, 스캔 PDF, 문서·슬라이드 속 그림).
 """
 
 import asyncio
@@ -20,6 +20,9 @@ from backend.ingest.base import (
     normalize_text,
 )
 from backend.ingest.config import OCRSettings
+from backend.ingest.docx import docx_raw_pages
+from backend.ingest.hwp import hwp_raw_pages
+from backend.ingest.hwpx import hwpx_raw_pages
 from backend.ingest.image import open_image_file
 from backend.ingest.ocr import (
     HybridOcr,
@@ -30,6 +33,7 @@ from backend.ingest.ocr import (
 )
 from backend.ingest.pdf import extract_pdf_pages, pdf_raw_pages
 from backend.ingest.pptx import extract_pptx_pages, pptx_raw_pages
+from backend.ingest.text import txt_raw_pages
 from backend.rag.chunking import PageText
 
 __all__ = [
@@ -61,6 +65,9 @@ def extract_pages(data: bytes, file_type: str) -> list[PageText]:
             return extract_pptx_pages(data)
         case FileType.PNG | FileType.JPG:
             raise IngestError(FailureCode.INTERNAL_ERROR, "image files need OCR")
+        case FileType.TXT | FileType.DOCX | FileType.HWP | FileType.HWPX:
+            raw = _DOCUMENT_READERS[file_type](data)
+            return ensure_extractable([PageText(p.number, p.text) for p in raw])
         case _:
             raise IngestError(FailureCode.UNSUPPORTED_FORMAT, f"file type {file_type!r}")
 
@@ -82,12 +89,23 @@ def make_ocr(
     return HybridOcr(engine, settings, ai)
 
 
+# 글자 문서: 쪽 나누기에서만 쪽을 나눈다. DOCX·HWP·HWPX 속 그림은 OCR로 읽는다
+_DOCUMENT_READERS = {
+    FileType.TXT: txt_raw_pages,
+    FileType.DOCX: docx_raw_pages,
+    FileType.HWP: hwp_raw_pages,
+    FileType.HWPX: hwpx_raw_pages,
+}
+
+
 def _raw_pages(data: bytes, file_type: str) -> list[RawPage]:
     match file_type:
         case FileType.PDF:
             return pdf_raw_pages(data)
         case FileType.PPTX:
             return pptx_raw_pages(data)
+        case FileType.TXT | FileType.DOCX | FileType.HWP | FileType.HWPX:
+            return _DOCUMENT_READERS[file_type](data)
         case FileType.PNG | FileType.JPG:
             image = open_image_file(data)
             return [RawPage(1, "", lambda: [image], whole_image=True)]

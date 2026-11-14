@@ -196,7 +196,7 @@ async def test_newest_material_is_listed_first(client: httpx.AsyncClient, projec
 # --- 업로드 단계에서 막히는 예외 (사전 검증) ---
 
 
-@pytest.mark.parametrize("name", ["보고서.docx", "강의.ppt", "메모.txt", "움짤.gif", "확장자없음"])
+@pytest.mark.parametrize("name", ["보고서.doc", "강의.ppt", "표.xlsx", "움짤.gif", "확장자없음"])
 async def test_unsupported_extensions_are_rejected(
     client: httpx.AsyncClient, project: str, name: str
 ) -> None:

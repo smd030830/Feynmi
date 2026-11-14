@@ -23,6 +23,10 @@ EXTENSIONS = {
     "png": FileType.PNG,
     "jpg": FileType.JPG,
     "jpeg": FileType.JPG,
+    "txt": FileType.TXT,
+    "docx": FileType.DOCX,
+    "hwp": FileType.HWP,
+    "hwpx": FileType.HWPX,
 }
 TITLE_MAX_LENGTH = 200
 

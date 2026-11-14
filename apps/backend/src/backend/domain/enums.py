@@ -29,6 +29,10 @@ class FileType(StrEnum):
     PPTX = "pptx"
     PNG = "png"
     JPG = "jpg"  # .jpeg 포함
+    TXT = "txt"
+    DOCX = "docx"
+    HWP = "hwp"
+    HWPX = "hwpx"
 
 
 class MaterialStatus(StrEnum):

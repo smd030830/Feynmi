@@ -11,7 +11,6 @@ OCR을 쓸 때는 쪽마다 그림도 내놓는다.
 """
 
 import logging
-import re
 import threading
 from collections.abc import Iterator
 from functools import cached_property, partial
@@ -43,8 +42,6 @@ _RENDER_DPI = 300
 _RENDER_MAX_SIDE = 4000
 # PDFium은 여러 작업 줄에서 동시에 부르면 안 된다 (자료 여러 개를 동시에 분석할 때)
 _PDFIUM_LOCK = threading.Lock()
-# 글자로 의미가 없는 문자: 제어 문자(줄바꿈·탭 제외), 글꼴 전용 영역(장식 기호가 U+F000 등으로 나옴)
-_JUNK_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f-￾￿]")
 
 
 def _open(data: bytes) -> PdfReader:
@@ -65,8 +62,8 @@ def _open(data: bytes) -> PdfReader:
     return reader
 
 
-def _clean(text: str) -> str:
-    return normalize_text(_JUNK_CHARS.sub("", text))
+def _clean(text: str) -> str:  # 장식 기호·제어 문자 정리는 normalize_text가 한다
+    return normalize_text(text)
 
 
 def _page_text(page: PageObject, number: int, pdfium: _Pdfium) -> str:
