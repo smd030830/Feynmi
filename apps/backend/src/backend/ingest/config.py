@@ -36,5 +36,8 @@ class OCRSettings(BaseSettings):
     ocr_max_odd_token_ratio: float = Field(default=0.1, ge=0, le=1)
     # 애매한데 평균 신뢰도가 이보다 낮으면(AI로 다시 읽지 못할 때) 글자를 버린다
     ocr_drop_below_confidence: float = Field(default=40.0, ge=0, le=100)
+    # 그림 속 한 줄의 단어 평균 신뢰도가 이보다 낮고 한글이 절반 미만이면 그 줄을 버린다
+    # (도표·아이콘에서 나온 엉터리 줄). 실제 자료에서 엉터리 줄은 8~33, 정상 줄은 대부분 40 이상
+    ocr_min_line_confidence: float = Field(default=35.0, ge=0, le=100)
     # 자료 하나에서 AI로 다시 읽는 횟수 상한 (비용 보호). 0이면 AI 보조를 쓰지 않는다
     ocr_ai_max_calls: int = Field(default=20, ge=0)

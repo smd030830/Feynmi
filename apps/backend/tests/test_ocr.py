@@ -19,6 +19,7 @@ from backend.ingest.ocr import (
     is_ocr_target,
     odd_token_ratio,
     prepare,
+    reliable_result,
     word_confidence,
 )
 from backend.llm import LLMError
@@ -112,6 +113,61 @@ def test_word_confidence_from_tesseract_table() -> None:
     assert weak == 0.25
     assert word_confidence("level\tconf\ttext\n") == (None, 0.0)
     assert word_confidence("") == (None, 0.0)
+
+
+def tesseract_output(lines: list[tuple[str, float]]) -> tuple[str, str]:
+    """줄마다 (글자, 단어 신뢰도)를 받아 Tesseract의 txt와 tsv 결과를 흉내 낸다."""
+    rows = ["level\tpage_num\tblock_num\tpar_num\tline_num\tconf\ttext"]
+    for n, (text, conf) in enumerate(lines, start=1):
+        rows += [f"5\t1\t1\t1\t{n}\t{conf}\t{word}" for word in text.split()]
+    return "\n\n".join(text for text, _ in lines), "\n".join(rows)
+
+
+def test_unreliable_lines_are_dropped_and_good_lines_kept() -> None:
+    # 실제 강의 PDF의 도표 그림: 좋은 줄 사이에 엉터리 줄이 섞였다
+    text, tsv = tesseract_output(
+        [
+            ("한 인증 1: 평문 패스워드 저장", 90),
+            ("ESE acco", 32),  # 신뢰도 낮은 영문 조각
+            ("pasa Pal 6 |", 30),
+            ("흐릿한 한글 설명 줄", 30),  # 신뢰도는 낮아도 한글이면 남긴다
+            ("rh", 97),  # 짧은 조각은 신뢰도가 높아도 버린다
+            ("CPU", 95),  # 약어는 남긴다
+            ("© B25 © f aA", 70),  # 기호와 낱자가 흩어진 무늬
+            ("x = a + b", 92),  # 수식은 남긴다
+        ]
+    )
+    result = reliable_result(text, tsv, SETTINGS.ocr_min_line_confidence)
+    assert result.text.split("\n") == [
+        "한 인증 1: 평문 패스워드 저장",
+        "흐릿한 한글 설명 줄",
+        "CPU",
+        "x = a + b",
+    ]
+    # 신뢰도는 남긴 줄의 단어로 다시 계산한다 (엉터리 줄이 평균을 끌어내리지 않게)
+    assert result.confidence == pytest.approx((90 * 6 + 30 * 4 + 95 + 92 * 5) / 16)
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("| | ! rooms.TryGetValue(name)", "rooms.TryGetValue(name)"),
+        ("4 | Destroy(tempRoom);", "Destroy(tempRoom);"),
+        ("i 4 | // 딕셔너리에서 검색", "// 딕셔너리에서 검색"),
+        (": PhotonNetwork.LeaveRoom();", "PhotonNetwork.LeaveRoom();"),
+        ("1 from http.server import X", "1 from http.server import X"),  # 줄 번호는 남김
+        ("'합법적인 사람'의 수정", "'합법적인 사람'의 수정"),
+    ],
+)
+def test_code_editor_gutter_marks_are_stripped(line: str, expected: str) -> None:
+    text, tsv = tesseract_output([(line, 90)])
+    assert reliable_result(text, tsv, SETTINGS.ocr_min_line_confidence).text == expected
+
+
+def test_line_filter_skips_confidence_when_lines_do_not_match() -> None:
+    text, tsv = tesseract_output([("ESE acco", 20)])
+    result = reliable_result(text + "\n추가된 줄", tsv, SETTINGS.ocr_min_line_confidence)
+    assert result.text == "ESE acco\n추가된 줄"
 
 
 def test_clean_text_drops_blank_lines_and_double_spaces() -> None:

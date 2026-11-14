@@ -6,6 +6,7 @@
 import asyncio
 import io
 import logging
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -122,7 +123,7 @@ class TesseractEngine:
                 return OcrResult("", None)
             text = out.with_suffix(".txt").read_text(encoding="utf-8")
             tsv = out.with_suffix(".tsv").read_text(encoding="utf-8")
-        return OcrResult(clean_text(text), *word_confidence(tsv))
+        return reliable_result(text, tsv, self.settings.ocr_min_line_confidence)
 
 
 def clean_text(text: str) -> str:
@@ -131,22 +132,97 @@ def clean_text(text: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def word_confidence(tsv: str) -> tuple[float | None, float]:
-    """tsv에서 단어 평균 신뢰도와 자신 없는 단어 비율을 계산한다."""
+def _confidences(words: list[float]) -> tuple[float | None, float]:
+    if not words:
+        return None, 0.0
+    weak = sum(c < _WEAK_WORD for c in words) / len(words)
+    return sum(words) / len(words), weak
+
+
+def line_words(tsv: str) -> list[list[float]]:
+    """tsv의 줄마다 단어 신뢰도 목록. txt의 (빈 줄이 아닌) 줄과 같은 순서다."""
     rows = [line.split("\t") for line in tsv.splitlines() if line]
     if not rows:
-        return None, 0.0
+        return []
     header = rows[0]
     conf_at, text_at = header.index("conf"), header.index("text")
-    confidences = [
-        float(row[conf_at])
-        for row in rows[1:]
-        if len(row) > text_at and row[text_at].strip() and float(row[conf_at]) >= 0
-    ]
-    if not confidences:
-        return None, 0.0
-    weak = sum(c < _WEAK_WORD for c in confidences) / len(confidences)
-    return sum(confidences) / len(confidences), weak
+    keys = ("page_num", "block_num", "par_num", "line_num")
+    key_at = [header.index(k) for k in keys if k in header]  # 없으면 한 줄로 본다
+    lines: dict[tuple[str, ...], list[float]] = {}
+    for row in rows[1:]:
+        if len(row) > text_at and row[text_at].strip() and float(row[conf_at]) >= 0:
+            lines.setdefault(tuple(row[i] for i in key_at), []).append(float(row[conf_at]))
+    return list(lines.values())
+
+
+def word_confidence(tsv: str) -> tuple[float | None, float]:
+    """tsv에서 단어 평균 신뢰도와 자신 없는 단어 비율을 계산한다."""
+    return _confidences([c for words in line_words(tsv) for c in words])
+
+
+# 코드 편집기의 들여쓰기 안내선·접기 표시가 줄 앞에 "| ", "! ", ": ", "4 | "처럼 붙어 읽힌다.
+# 낱자 기호 뒤에 공백이 오는 묶음이고, 끝이 분명한 안내선 기호(| ! : 등)일 때만 지운다.
+# "1 from …"(줄 번호)이나 "'따옴표'"는 그대로 둔다.
+_GUTTER = re.compile(r"^(?:[|!¦ㅣ:‘'`iIl14t]\s+)*[|!¦ㅣ:‘'`]\s+")
+_HANGUL = re.compile(r"[가-힣]")
+_ACRONYM = re.compile(r"[A-Z]{2,3}")  # CPU, ID, OS 같은 짧은 약어는 남긴다
+
+
+def _hangul_ratio(line: str) -> float:
+    chars = [ch for ch in line if not ch.isspace()]
+    return sum(bool(_HANGUL.match(ch)) for ch in chars) / len(chars) if chars else 0.0
+
+
+def _is_fragment(line: str) -> bool:
+    """도표·무늬에서 나온 짧은 조각 ("rh", "oat", "+", "00"). 한글과 약어는 남긴다."""
+    compact = "".join(line.split())
+    return len(compact) <= 3 and not _HANGUL.search(compact) and not _ACRONYM.fullmatch(compact)
+
+
+def _is_scatter(line: str, confidence: float | None) -> bool:
+    """무늬·도표를 읽은 줄: 한두 글자 낱말이 대부분이고, 이상한 기호가 있거나 신뢰도가 낮다.
+
+    예: "© B25 © f aA", "GE; © © @ [) Nod 7 71 7". 수식("x = a + b")은 기호가 정상이고
+    신뢰도가 높아 남는다.
+    """
+    tokens = line.split()
+    if len(tokens) < 4 or _hangul_ratio(line) >= 0.3:
+        return False
+    short = sum(len(t) <= 2 for t in tokens) / len(tokens)
+    # 수식의 = < > 는 정상이므로, 정상 글에 드문 기호(© ¦ 등)와 모르는 기호만 본다
+    odd = any(ch in _ODD_SYMBOLS or not _is_known_char(ch) for ch in line if not ch.isspace())
+    return short >= 0.6 and (odd or (confidence is not None and confidence < _WEAK_WORD))
+
+
+def reliable_result(text: str, tsv: str, min_line_confidence: float) -> OcrResult:
+    """믿을 만한 줄만 남긴다. 신뢰도는 남긴 줄의 단어로 다시 계산한다.
+
+    도표·아이콘을 함께 읽으면 좋은 줄 사이에 엉터리 줄("ESE acco", "pasa Pal 6 |")이 섞인다.
+    그림 전체를 버리면 좋은 줄까지 잃으므로 줄 단위로 거른다:
+    - 신뢰도가 낮고(min_line_confidence 미만) 한글이 절반도 안 되는 줄
+    - 한글 없는 3자 이하 조각
+    - 한두 글자 낱말과 이상한 기호가 흩어진 줄 (무늬·도표)
+    txt와 tsv의 줄 수가 다르면(드묾) 신뢰도 거르기는 하지 않는다.
+    """
+    cleaned = clean_text(text)
+    lines = cleaned.split("\n") if cleaned else []
+    words = line_words(tsv)
+    by_line = len(words) == len(lines)
+    kept: list[str] = []
+    kept_words: list[float] = []
+    for i, raw in enumerate(lines):
+        line = _GUTTER.sub("", raw).strip()
+        confidence = _confidences(words[i])[0] if by_line else None
+        if not line or _is_fragment(line) or _is_scatter(line, confidence):
+            continue
+        if by_line:
+            if (confidence or 0) < min_line_confidence and _hangul_ratio(line) < 0.5:
+                continue
+            kept_words.extend(words[i])
+        kept.append(line)
+    if not by_line:
+        kept_words = [c for line_confs in words for c in line_confs]
+    return OcrResult("\n".join(kept), *_confidences(kept_words))
 
 
 def _is_known_char(ch: str) -> bool:
