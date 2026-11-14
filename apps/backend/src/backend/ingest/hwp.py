@@ -19,7 +19,7 @@ import olefile
 from PIL import Image
 
 from backend.domain.enums import FailureCode
-from backend.ingest.base import IngestError, RawPage, check_page_count, check_size, normalize_text
+from backend.ingest.base import IngestError, PageParts, RawPage, check_page_count, check_size
 from backend.ingest.image import try_decode
 
 _OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
@@ -92,12 +92,6 @@ def _inflate(data: bytes) -> bytes:
     return out
 
 
-class _Page:
-    def __init__(self) -> None:
-        self.lines: list[str] = []
-        self.bin_ids: list[int] = []
-
-
 def hwp_raw_pages(data: bytes) -> list[RawPage]:
     check_size(data)
     if not data.startswith(_OLE_HEADER):
@@ -124,11 +118,7 @@ def hwp_raw_pages(data: bytes) -> list[RawPage]:
         raise IngestError(FailureCode.CORRUPTED_FILE, "unreadable HWP body") from exc
     check_page_count(len(pages))
     return [
-        RawPage(
-            number,
-            normalize_text("\n".join(page.lines)),
-            _loader(ole, compressed, [bin_streams[i] for i in page.bin_ids if i in bin_streams]),
-        )
+        page.raw_page(number, _loader(ole, compressed, [bin_streams.get(i) for i in page.images]))
         for number, page in enumerate(pages, start=1)
     ]
 
@@ -142,23 +132,23 @@ def _section_names(ole: olefile.OleFileIO) -> list[str]:
     return sorted(names, key=lambda name: int(name.removeprefix("BodyText/Section") or 0))
 
 
-def _read_sections(ole: olefile.OleFileIO, compressed: bool) -> list[_Page]:
-    pages = [_Page()]
+def _read_sections(ole: olefile.OleFileIO, compressed: bool) -> list[PageParts[int]]:
+    # 그림 개체 레코드는 그 문단의 글자(PARA_TEXT) 뒤에 나온다.
+    # 그래서 순서대로 담으면 그림 자리가 문단 바로 뒤가 된다
+    pages: list[PageParts[int]] = [PageParts()]
     for name in _section_names(ole):
         raw = ole.openstream(name).read()
         stream = _inflate(raw) if compressed else raw
         for tag, level, payload in records(stream):
             if tag == PARA_HEADER and level == 0 and len(payload) >= 12:
-                if payload[11] & _PAGE_BREAK and (pages[-1].lines or pages[-1].bin_ids):
-                    pages.append(_Page())
+                if payload[11] & _PAGE_BREAK and not pages[-1].empty:
+                    pages.append(PageParts())
             elif tag == PARA_TEXT:
-                text = para_text(payload)
-                if text.strip():
-                    pages[-1].lines.append(text)
+                pages[-1].line(para_text(payload))
             elif tag == SHAPE_COMPONENT_PICTURE and len(payload) >= 73:
                 (bin_id,) = struct.unpack_from("<H", payload, 71)
-                pages[-1].bin_ids.append(bin_id)
-    while len(pages) > 1 and not pages[-1].lines and not pages[-1].bin_ids:
+                pages[-1].image(bin_id)
+    while len(pages) > 1 and pages[-1].empty:
         pages.pop()
     return pages
 
@@ -175,18 +165,20 @@ def _bin_streams(ole: olefile.OleFileIO) -> dict[int, str]:
     return found
 
 
-def _loader(ole: olefile.OleFileIO, compressed: bool, names: list[str]):  # noqa: ANN202
-    def load() -> Iterator[Image.Image]:
+def _loader(ole: olefile.OleFileIO, compressed: bool, names: list[str | None]):  # noqa: ANN202
+    def load() -> Iterator[Image.Image | None]:
         for name in names:
+            if name is None:  # 없는 그림은 None으로 자리만 지킨다
+                yield None
+                continue
             try:
                 raw = ole.openstream(name).read()
                 # 그림은 이미 압축된 형식(PNG/JPG)이라 한글이 다시 압축하지 않는 경우가 많다
                 already_image = raw.startswith((b"\x89PNG", b"\xff\xd8"))
                 blob = _inflate(raw) if compressed and not already_image else raw
             except Exception:
+                yield None
                 continue
-            image = try_decode(blob, f"HWP {name}")
-            if image is not None:
-                yield image
+            yield try_decode(blob, f"HWP {name}")
 
     return load

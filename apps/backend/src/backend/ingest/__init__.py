@@ -7,6 +7,7 @@
 
 import asyncio
 import logging
+import re
 
 from PIL import Image
 
@@ -33,6 +34,7 @@ from backend.ingest.ocr import (
 )
 from backend.ingest.pdf import extract_pdf_pages, pdf_raw_pages
 from backend.ingest.pptx import extract_pptx_pages, pptx_raw_pages
+from backend.ingest.sections import split_sections
 from backend.ingest.text import txt_raw_pages
 from backend.rag.chunking import PageText
 
@@ -45,6 +47,7 @@ __all__ = [
     "extract_pages",
     "extract_pdf_pages",
     "extract_pptx_pages",
+    "has_real_pages",
     "make_ocr",
     "read_material",
 ]
@@ -54,6 +57,7 @@ logger = logging.getLogger(__name__)
 # OCR 글자의 이 비율 이상이 이미 쪽 글자에 있으면 중복으로 보고 붙이지 않는다
 # (예: 글자 층이 있는 스캔 PDF, 슬라이드 제목을 그대로 담은 캡처)
 _DUPLICATE_RATIO = 0.8
+_BLANK_LINES = re.compile(r"\n{3,}")
 
 
 def extract_pages(data: bytes, file_type: str) -> list[PageText]:
@@ -67,7 +71,8 @@ def extract_pages(data: bytes, file_type: str) -> list[PageText]:
             raise IngestError(FailureCode.INTERNAL_ERROR, "image files need OCR")
         case FileType.TXT | FileType.DOCX | FileType.HWP | FileType.HWPX:
             raw = _DOCUMENT_READERS[file_type](data)
-            return ensure_extractable([PageText(p.number, p.text) for p in raw])
+            pages = [PageText(p.number, p.text) for p in raw]
+            return ensure_extractable(_finish(pages, file_type))
         case _:
             raise IngestError(FailureCode.UNSUPPORTED_FORMAT, f"file type {file_type!r}")
 
@@ -98,6 +103,16 @@ _DOCUMENT_READERS = {
 }
 
 
+def has_real_pages(file_type: str) -> bool:
+    """PDF·PPTX·이미지는 실제 쪽이다. 글 문서의 "쪽"은 쪽 나누기나 구역이라 머리글이 없다."""
+    return file_type not in _DOCUMENT_READERS
+
+
+def _finish(pages: list[PageText], file_type: str) -> list[PageText]:
+    """쪽 정보가 없는 글 문서는 긴 쪽을 구역으로 나눈다. PDF·PPTX·이미지는 실제 쪽 그대로."""
+    return pages if has_real_pages(file_type) else split_sections(pages)
+
+
 def _raw_pages(data: bytes, file_type: str) -> list[RawPage]:
     match file_type:
         case FileType.PDF:
@@ -113,9 +128,21 @@ def _raw_pages(data: bytes, file_type: str) -> list[RawPage]:
             raise IngestError(FailureCode.UNSUPPORTED_FORMAT, f"file type {file_type!r}")
 
 
-def _page_images(raw: RawPage) -> list[Image.Image]:
+def _page_images(raw: RawPage) -> list[Image.Image | None]:
     """한 쪽의 그림을 모두 꺼낸다 (쪽 단위로만 메모리에 올린다)."""
     return list(raw.images())
+
+
+async def _ocr_text(image: Image.Image | None, raw: RawPage, ocr: HybridOcr, page_text: str) -> str:
+    """그림 하나를 읽어 쪽에 넣을 글자를 돌려준다. 넣을 게 없으면 빈 문자열."""
+    if image is None or not ocr.has_budget():
+        return ""
+    if not raw.whole_image and not is_ocr_target(image.size, ocr.settings):
+        return ""
+    outcome = await ocr.read(image)
+    if not outcome.text or _is_duplicate(outcome.text, page_text):
+        return ""
+    return outcome.text
 
 
 def _is_duplicate(ocr_text: str, page_text: str) -> bool:
@@ -127,8 +154,10 @@ def _is_duplicate(ocr_text: str, page_text: str) -> bool:
 
 
 async def read_material(data: bytes, file_type: str, ocr: HybridOcr | None) -> list[PageText]:
-    """원본을 쪽별 글자로 읽고, 그림 속 글자는 OCR로 읽어 같은 쪽 뒤에 붙인다.
+    """원본을 쪽별 글자로 읽고, 그림 속 글자는 OCR로 읽어 같은 쪽에 넣는다.
 
+    워드·한글 문서는 그림이 있던 문단 바로 뒤에, 그 외에는 쪽 끝에 붙인다.
+    쪽 정보가 없는 글 문서의 긴 쪽은 구역으로 나눈다 (`sections.split_sections`).
     `ocr`가 None이면(Tesseract 없음) 그림은 건너뛰고, 이미지 파일은 읽을 수 없어 실패한다.
     반환 길이가 곧 쪽 수(`materials.page_count`)다. 실패하면 IngestError.
     """
@@ -139,15 +168,30 @@ async def read_material(data: bytes, file_type: str, ocr: HybridOcr | None) -> l
 
     pages: list[PageText] = []
     for raw in raw_pages:
-        parts = [raw.text] if raw.text else []
-        if ocr is not None:
-            for image in await asyncio.to_thread(_page_images, raw):
-                if not ocr.has_budget():
-                    break
-                if not raw.whole_image and not is_ocr_target(image.size, ocr.settings):
-                    continue
-                outcome = await ocr.read(image)
-                if outcome.text and not _is_duplicate(outcome.text, "\n".join(parts)):
-                    parts.append(outcome.text)
-        pages.append(PageText(raw.number, normalize_text("\n\n".join(parts))))
-    return ensure_extractable(pages)
+        if ocr is not None and raw.parts is not None:
+            text = await _with_inline_images(raw, ocr)
+        else:
+            parts = [raw.text] if raw.text else []
+            if ocr is not None:
+                for image in await asyncio.to_thread(_page_images, raw):
+                    found = await _ocr_text(image, raw, ocr, "\n".join(parts))
+                    if found:
+                        parts.append(found)
+            text = "\n\n".join(parts)
+        pages.append(PageText(raw.number, normalize_text(text)))
+    return ensure_extractable(_finish(pages, file_type))
+
+
+async def _with_inline_images(raw: RawPage, ocr: HybridOcr) -> str:
+    """글 줄 사이, 그림이 있던 자리에 그림 글자를 끼워 넣는다 (빈 줄로 앞뒤를 띄운다)."""
+    images = await asyncio.to_thread(_page_images, raw)
+    out: list[str] = []
+    for part in raw.parts or ():
+        if isinstance(part, str):
+            out.append(part)
+            continue
+        image = images[part] if part < len(images) else None
+        found = await _ocr_text(image, raw, ocr, raw.text)
+        if found:
+            out.append(f"\n{found}\n")
+    return _BLANK_LINES.sub("\n\n", "\n".join(out))

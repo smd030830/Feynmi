@@ -19,9 +19,42 @@ class RawPage:
 
     number: int
     text: str
-    images: Callable[[], Iterable[Image.Image]]
+    # 그림을 순서대로 낸다. parts를 쓰는 쪽은 못 연 그림 자리에 None을 내어 번호를 맞춘다
+    images: Callable[[], Iterable[Image.Image | None]]
     # 업로드한 이미지 파일 자체라면 크기와 상관없이 읽는다
     whole_image: bool = False
+    # 글 줄(str)과 그림 번호(int)를 문서에 나온 순서대로 담는다. 있으면 그림 글자를 그 자리에
+    # 끼워 넣는다 (워드·한글 문서: 설명 문단 바로 뒤에 그 캡처 글자). 없으면 쪽 끝에 붙인다.
+    parts: tuple[str | int, ...] | None = None
+
+
+class PageParts[T]:
+    """문서 한 쪽을 읽으며 글 줄과 그림 자리를 순서대로 모은다 (DOCX·HWP·HWPX).
+
+    `T`는 그림을 다시 찾을 단서(파일 경로, 바이트 등)이고, `RawPage.parts`의 숫자가 그 번호다.
+    """
+
+    def __init__(self) -> None:
+        self.parts: list[str | int] = []
+        self.images: list[T] = []
+
+    def line(self, text: str) -> None:
+        if text.strip():
+            self.parts.append(text)
+
+    def image(self, ref: T) -> None:
+        self.parts.append(len(self.images))
+        self.images.append(ref)
+
+    @property
+    def empty(self) -> bool:
+        return not self.parts
+
+    def text(self) -> str:
+        return normalize_text("\n".join(p for p in self.parts if isinstance(p, str)))
+
+    def raw_page(self, number: int, images: Callable[[], Iterable[Image.Image | None]]) -> RawPage:
+        return RawPage(number, self.text(), images, parts=tuple(self.parts))
 
 
 class IngestError(Exception):

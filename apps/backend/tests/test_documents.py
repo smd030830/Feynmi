@@ -12,10 +12,13 @@ from docx.shared import Inches
 from test_read_material import FakeEngine, image_bytes, ocr
 
 from backend.domain.enums import FailureCode
-from backend.ingest import IngestError, extract_pages, read_material
+from backend.ingest import MAX_PAGES, IngestError, extract_pages, has_real_pages, read_material
 from backend.ingest import hwp as hwp_module
 from backend.ingest.hwp import PARA_HEADER, PARA_TEXT, SHAPE_COMPONENT_PICTURE, para_text, records
 from backend.ingest.package import MAX_UNZIPPED_BYTES
+from backend.ingest.script import Script, scripted
+from backend.ingest.sections import SECTION_CHARS, split_sections
+from backend.rag.chunking import PageText
 
 # --- TXT ----------------------------------------------------------------------
 
@@ -265,3 +268,132 @@ def test_hwp_rejects_non_ole_files() -> None:
     with pytest.raises(IngestError) as error:
         extract_pages("한글 파일인 척하는 글".encode(), "hwp")
     assert error.value.code == FailureCode.UNSUPPORTED_FORMAT
+
+
+# --- 위·아래 첨자 ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "script", "expected"),
+    [
+        ("12", "super", "¹²"),
+        ("-1", "super", "⁻¹"),
+        ("2", "sub", "₂"),
+        (" n ", "super", " ⁿ "),  # 앞뒤 공백은 그대로
+        ("k", "super", "^k"),  # 유니코드 첨자가 없는 글자
+        ("min", "sub", "_(min)"),  # i는 아래 첨자가 없다
+    ],
+)
+def test_scripted(text: str, script: Script, expected: str) -> None:
+    assert scripted(text, script) == expected
+
+
+def test_docx_keeps_superscript_and_subscript() -> None:
+    document: Any = Document()
+    paragraph = document.add_paragraph("4KB = 2")
+    paragraph.add_run("1").font.superscript = True
+    paragraph.add_run("2").font.superscript = True  # 나뉜 첨자 글자 묶음도 이어 붙인다
+    paragraph.add_run(" B, log")
+    paragraph.add_run("2").font.subscript = True
+    paragraph.add_run("256")
+    out = io.BytesIO()
+    document.save(out)
+    assert extract_pages(out.getvalue(), "docx")[0].text == "4KB = 2¹² B, log₂256"
+
+
+def test_hwpx_keeps_superscript_from_char_shape() -> None:
+    header = (
+        '<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head"><hh:charProperties>'
+        '<hh:charPr id="0"/><hh:charPr id="7"><hh:supscript/></hh:charPr>'
+        '<hh:charPr id="8"><hh:subscript/></hh:charPr></hh:charProperties></hh:head>'
+    )
+    section = (
+        '<hp:p><hp:run charPrIDRef="0"><hp:t>2</hp:t></hp:run>'
+        '<hp:run charPrIDRef="7"><hp:t>10</hp:t></hp:run>'
+        '<hp:run charPrIDRef="0"><hp:t> = 1024, P</hp:t></hp:run>'
+        '<hp:run charPrIDRef="8"><hp:t>1</hp:t></hp:run></hp:p>'
+    )
+    data = make_hwpx(section, {"Contents/header.xml": header.encode()})
+    assert extract_pages(data, "hwpx")[0].text == "2¹⁰ = 1024, P₁"
+
+
+# --- 그림 글자는 그림이 있던 문단 바로 뒤에 ------------------------------------
+
+
+async def test_docx_picture_text_follows_its_paragraph() -> None:
+    document: Any = Document()
+    document.add_paragraph("터미널에서 ls를 실행한다.")
+    document.add_picture(io.BytesIO(image_bytes((400, 200), color="gray")), width=Inches(3))
+    document.add_paragraph("다음으로 권한을 바꾼다.")
+    out = io.BytesIO()
+    document.save(out)
+    pages = await read_material(out.getvalue(), "docx", ocr(FakeEngine("user@ubuntu:~$ ls")))
+    assert pages[0].text == (
+        "터미널에서 ls를 실행한다.\n\nuser@ubuntu:~$ ls\n\n다음으로 권한을 바꾼다."
+    )
+
+
+async def test_hwpx_picture_text_follows_its_paragraph() -> None:
+    picture = '<hp:pic><hc:img binaryItemIDRef="image1"/></hp:pic>'
+    data = make_hwpx(
+        para("실행 화면", inner=picture) + para("설명을 마친다."),
+        {"BinData/image1.png": image_bytes((400, 200), color="gray")},
+    )
+    pages = await read_material(data, "hwpx", ocr(FakeEngine("로그인 화면")))
+    assert pages[0].text == "실행 화면\n\n로그인 화면\n\n설명을 마친다."
+
+
+async def test_hwp_picture_text_follows_its_paragraph(monkeypatch: pytest.MonkeyPatch) -> None:
+    section = (
+        para_header()
+        + text_record("결과물 사진")
+        + picture_record(1)
+        + picture_record(9)  # 없는 그림 번호는 건너뛰고 순서는 지킨다
+        + para_header()
+        + text_record("이상으로 마친다.")
+    )
+    data = hwp_file(monkeypatch, 0x1, section, image_bytes((400, 200), color="gray"))
+    engine = FakeEngine("회원가입 화면")
+    pages = await read_material(data, "hwp", ocr(engine))
+    assert pages[0].text == "결과물 사진\n\n회원가입 화면\n\n이상으로 마친다."
+    assert len(engine.sizes) == 1
+
+
+# --- 긴 글 문서는 구역으로 나눈다 ---------------------------------------------
+
+
+def _long_text(headings: int, body_lines: int) -> str:
+    blocks = []
+    for n in range(1, headings + 1):
+        body = "\n".join(f"{n}장 본문 문장 {i} " + "가" * 40 for i in range(body_lines))
+        blocks.append(f"{n}. 제목 {n}\n{body}")
+    return "\n".join(blocks)
+
+
+def test_long_txt_is_split_at_headings() -> None:
+    text = _long_text(headings=6, body_lines=30)  # 제목마다 약 1,500자
+    pages = extract_pages(text.encode(), "txt")
+    assert len(pages) > 1
+    assert [p.number for p in pages] == list(range(1, len(pages) + 1))
+    assert all(p.text.startswith(f"{p.text.split('.')[0]}. 제목") for p in pages)
+    assert "\n".join(p.text for p in pages) == text  # 글자는 하나도 잃지 않는다
+
+
+def test_long_text_without_headings_is_split_at_lines() -> None:
+    text = "\n".join("제목 없는 긴 줄 " + "나" * 60 for _ in range(200))
+    pages = split_sections([PageText(1, text)])
+    assert len(pages) > 1
+    assert all(len(p.text) <= SECTION_CHARS * 2 for p in pages)
+    assert "\n".join(p.text for p in pages) == text
+
+
+def test_short_document_and_real_pages_are_not_split() -> None:
+    assert extract_pages("짧은 메모\n1. 항목".encode(), "txt") == [
+        PageText(1, "짧은 메모\n1. 항목")
+    ]
+    assert has_real_pages("pdf") and has_real_pages("pptx") and not has_real_pages("docx")
+
+
+def test_sections_never_exceed_page_limit() -> None:
+    pages = [PageText(n, "\n".join("줄 " + "다" * 50 for _ in range(300))) for n in range(1, 11)]
+    assert len(split_sections(pages)) <= MAX_PAGES

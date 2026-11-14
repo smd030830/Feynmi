@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.db.models import Chunk, Material, Project
 from backend.domain.enums import FailureCode, MaterialStatus
-from backend.ingest import HybridOcr, IngestError, make_ocr, read_material
+from backend.ingest import HybridOcr, IngestError, has_real_pages, make_ocr, read_material
 from backend.ingest.cleanup import drop_repeated_lines
 from backend.ingest.ocr import ImageTextReader
 from backend.llm import LLMError, LLMSettings, openai_provider
@@ -109,7 +109,10 @@ async def analyze_material(
                 material.page_count = len(pages)
                 material.page_texts = [page.text for page in pages]  # "글자 보기"는 원문 그대로
                 # 조각에는 매 쪽 반복되는 머리글·바닥글을 넣지 않는다
-                chunks = await asyncio.to_thread(split_pages, drop_repeated_lines(pages))
+                # (글 문서의 쪽·구역에는 머리글이 없다)
+                if has_real_pages(material.file_type):
+                    pages = drop_repeated_lines(pages)
+                chunks = await asyncio.to_thread(split_pages, pages)
 
                 # 재시도라면 이전 시도의 조각을 지운다 (save_chunks는 중복 저장을 거부한다).
                 await db.execute(delete(Chunk).where(Chunk.material_id == material.id))
