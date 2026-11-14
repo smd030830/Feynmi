@@ -61,7 +61,7 @@ def _project_response(summary: ProjectSummary) -> ProjectResponse:
         name=project.name,
         description=project.description,
         color=ProjectColor(project.color),
-        score=None,  # 평균 규칙(FM-036)이 생기면 concepts.score로 계산한다
+        score=summary.score,
         state_counts=StateCounts(
             understood=counts[ConceptState.UNDERSTOOD],
             partial=counts[ConceptState.PARTIAL],

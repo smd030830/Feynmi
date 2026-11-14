@@ -3,6 +3,7 @@ import { CurrentNickname } from "@/components/auth-guard";
 import { GreetingEyebrow, TodayLabel } from "@/components/greeting";
 import { Icon, type IconName } from "@/components/icon";
 import { NewProjectButton } from "@/components/new-project-modal";
+import { HomeSessionCleanup } from "@/components/home-session-cleanup";
 
 export const metadata: Metadata = { title: "홈 · Feynmi" };
 
@@ -27,6 +28,7 @@ const cycle: { icon: IconName; label: string; tone: string }[] = [
 export default function HomePage() {
   return (
     <div className="flex flex-col gap-9">
+      <HomeSessionCleanup />
       {/* 인사 줄 */}
       <div className="flex items-end justify-between max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-3">
         <div>

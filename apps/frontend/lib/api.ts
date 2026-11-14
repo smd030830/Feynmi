@@ -57,6 +57,11 @@ const MESSAGES: Record<string, string> = {
   profile_required: "닉네임을 먼저 설정해주세요.",
   validation_error: "입력한 내용을 확인해주세요.",
   not_found: "찾을 수 없거나 접근할 수 없는 항목입니다.",
+  invalid_state: "이미 종료되었거나 현재 처리할 수 없는 요청입니다.",
+  evaluation_in_progress: "설명을 분석하고 있어요. 잠시 후 다시 확인해주세요.",
+  llm_failed: "AI 분석을 완료하지 못했어요. 작성한 답변은 보관되며 다시 보낼 수 있어요.",
+  account_deleting: "회원 탈퇴를 처리하고 있어요. 잠시 후 다시 확인해주세요.",
+  cloud_unavailable: "계정 서비스를 연결하지 못했어요. 잠시 후 다시 시도해주세요.",
 };
 
 export function apiErrorMessage(error: unknown) {
@@ -70,7 +75,9 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = 
 
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${await user.getIdToken(refreshToken)}`);
-  if (init.body) headers.set("Content-Type", "application/json");
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   let response: Response;
   try {
@@ -86,7 +93,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = 
       body?.error?.message ?? response.statusText,
     );
   }
-  return (await response.json()) as T;
+  return (response.status === 204 ? undefined : await response.json()) as T;
 }
 
 // refreshToken: 이메일 인증 직후처럼 토큰의 클레임을 갱신해야 할 때 true
@@ -111,4 +118,93 @@ export function createProject(name: string, description: string) {
 
 export function getProject(id: string) {
   return apiFetch<Project>(`/projects/${encodeURIComponent(id)}`);
+}
+
+export type ConceptState = "not_studied" | "partial" | "misconception" | "understood";
+export type Concept = {
+  id: string; title: string; description: string; state: ConceptState; score: number | null;
+  material_id: string; material_title: string;
+};
+export type LearningMessage = {
+  id: string; seq: number; role: "question" | "answer"; text: string; created_at: string;
+};
+export type Evidence = { id: string; material_title: string; page_start: number; page_end: number };
+export type Assessment = {
+  id: string; seq: number; state: ConceptState; score: number; created_at: string;
+  elements: {
+    element_id: string; text: string; importance: "core" | "supporting";
+    verdict: "met" | "partial" | "missing" | "contradicted";
+    learner_quote: string | null; evidence: Evidence[]; note?: string | null;
+  }[];
+  feedback: {
+    correct: string[]; missing_hint?: string[]; missing?: string[]; incorrect?: string[];
+    supplement?: string; summary_points?: string[];
+    unverified_statements?: { learner_quote: string; note: string }[];
+  };
+};
+export type LearningSession = {
+  id: string; concept_id: string; concept_title: string; project_id: string; project_name: string;
+  status: "in_progress" | "completed" | "aborted"; end_reason: string | null;
+  followups_used: number; started_at: string; ended_at: string | null;
+  messages: LearningMessage[]; assessments: Assessment[]; score_change: number | null;
+  remaining_core_count: number | null;
+  recommendation: null | {
+    concept_id: string; concept_title: string; project_id: string; project_name: string;
+    state: ConceptState; score: number | null; reason: string;
+  };
+};
+export function listConcepts(projectId: string) {
+  return apiFetch<{ items: Concept[]; recommendation: LearningSession["recommendation"] }>(`/projects/${encodeURIComponent(projectId)}/concepts`);
+}
+export function startSession(conceptId: string) {
+  return apiFetch<LearningSession>(`/concepts/${encodeURIComponent(conceptId)}/sessions`, { method: "POST" });
+}
+export function getSession(id: string) {
+  return apiFetch<LearningSession>(`/sessions/${encodeURIComponent(id)}`);
+}
+
+export function cleanupSessions() {
+  return apiFetch<void>("/sessions/cleanup", { method: "POST" });
+}
+
+export type WeeklySummary = { weekly_goal_days: number; study_days: boolean[] };
+export function getWeeklySummary() {
+  return apiFetch<WeeklySummary>("/me/summary");
+}
+export function getSessionResult(id: string) {
+  return apiFetch<LearningSession>(`/sessions/${encodeURIComponent(id)}/result`);
+}
+export function submitAnswer(id: string, text: string) {
+  return apiFetch<LearningSession>(`/sessions/${encodeURIComponent(id)}/answers`, {
+    method: "POST", body: JSON.stringify({ text }),
+  });
+}
+export function abortSession(id: string) {
+  return apiFetch<LearningSession>(`/sessions/${encodeURIComponent(id)}/abort`, { method: "POST" });
+}
+// pagehide에서는 비동기 토큰 조회가 끝나기 전에 문서가 닫힐 수 있어 미리 받은 토큰을 쓴다.
+export function abortSessionOnExit(id: string, token: string) {
+  return fetch(`${API_BASE_URL}/api/v1/sessions/${encodeURIComponent(id)}/abort`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true,
+  });
+}
+
+export type LearningSettings = {
+  question_depth: "basic" | "deep"; notifications_enabled: boolean; weekly_goal_days: number;
+};
+export type LoginEvent = { id: string; occurred_at: string; client_summary: string };
+export function getLearningSettings() { return apiFetch<LearningSettings>("/me/settings"); }
+export function saveLearningSettings(settings: Partial<LearningSettings>) {
+  return apiFetch<LearningSettings>("/me/settings", { method: "PATCH", body: JSON.stringify(settings) });
+}
+export function getLoginEvents() { return apiFetch<{ items: LoginEvent[] }>("/me/login-events"); }
+export function recordLogin() { return apiFetch<LoginEvent>("/me/login-events", { method: "POST" }); }
+export function revokeSessions() { return apiFetch<{ ok: boolean }>("/me/revoke-sessions", { method: "POST" }); }
+export function deleteAccount() {
+  return apiFetch<void>("/me", { method: "DELETE", body: JSON.stringify({ confirm: "탈퇴" }) });
+}
+export function uploadAvatar(file: File) {
+  return apiFetch<{ avatar_url: string }>("/me/avatar", {
+    method: "POST", headers: { "Content-Type": file.type }, body: file,
+  });
 }

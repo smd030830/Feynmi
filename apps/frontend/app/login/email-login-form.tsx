@@ -7,6 +7,7 @@ import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import { authErrorMessage } from "@/lib/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { recordLogin } from "@/lib/api";
 
 export function EmailLoginForm() {
   const [email, setEmail] = useState("");
@@ -22,6 +23,7 @@ export function EmailLoginForm() {
     try {
       // 로그인되면 GuestOnly가 홈으로 보낸다
       await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
+      await recordLogin().catch(() => undefined);
     } catch (err) {
       setError(authErrorMessage(err) ?? "");
       setPending(false);

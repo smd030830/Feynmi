@@ -8,6 +8,7 @@ import { useMe } from "@/components/auth-guard";
 import { Icon, type IconName } from "@/components/icon";
 import { Logo } from "@/components/logo";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { getWeeklySummary, type WeeklySummary } from "@/lib/api";
 
 // design-system 9.1 공통 레이아웃: 사이드바 236px
 const nav: { href: string; label: string; icon: IconName }[] = [
@@ -63,6 +64,16 @@ export function Sidebar() {
   const me = useMe();
   const nickname = me.nickname ?? "";
   const { open, setOpen } = useMobileNav();
+  const [summary, setSummary] = useState<WeeklySummary>();
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void getWeeklySummary().then((value) => { if (active) setSummary(value); }).catch(() => {});
+    };
+    refresh();
+    window.addEventListener("learning-settings-changed", refresh);
+    return () => { active = false; window.removeEventListener("learning-settings-changed", refresh); };
+  }, [pathname]);
 
   function logout() {
     // 로그아웃되면 AuthGuard가 /login으로 보낸다
@@ -112,12 +123,13 @@ export function Sidebar() {
 
       <section className="mt-auto rounded-2xl border border-line bg-canvas p-4" aria-label="이번 주 학습">
         <p className="text-body font-bold text-text">이번 주 학습</p>
-        <p className="mt-0.5 text-micro text-subtle">목표 3일 중 0일</p>
+        <p className="mt-0.5 text-micro text-subtle">{summary ? `목표 ${summary.weekly_goal_days}일 중 ${summary.study_days.filter(Boolean).length}일` : "학습 현황 확인 중"}</p>
         <ol className="mt-3 grid grid-cols-7 gap-1">
-          {DAYS.map((day) => (
+          {DAYS.map((day, index) => (
             <li
               key={day}
-              className="flex h-7 items-center justify-center rounded-md bg-[#eef0f4] text-micro font-bold text-subtle"
+              aria-label={`${day}요일 ${summary?.study_days[index] ? "학습 완료" : "학습 없음"}`}
+              className={`flex h-7 items-center justify-center rounded-md text-micro font-bold ${summary?.study_days[index] ? "bg-primary text-white" : "bg-canvas text-subtle"}`}
             >
               {day}
             </li>
@@ -126,8 +138,12 @@ export function Sidebar() {
       </section>
 
       <div className="mt-4 flex items-center gap-3 border-t border-line pt-4">
-        <span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#dbeafe,#ddd6fe)] text-body font-bold text-primary-strong">
-          {nickname.charAt(0).toUpperCase()}
+        <span className="flex size-[34px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#dbeafe,#ddd6fe)] text-body font-bold text-primary-strong">
+          {me.avatar_url ? (
+            // 짧게 만료되는 사용자 전용 주소이므로 브라우저에서 직접 표시한다.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={me.avatar_url} alt="프로필" className="size-full object-cover" referrerPolicy="no-referrer" />
+          ) : nickname.charAt(0).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-body font-semibold text-text">{nickname}</p>

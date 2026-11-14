@@ -17,8 +17,16 @@ uv run alembic upgrade head
 uv run uvicorn backend.main:app --reload   # http://localhost:8000/docs
 ```
 
-`.env`의 `FIREBASE_PROJECT_ID`(프론트엔드의 `NEXT_PUBLIC_FIREBASE_PROJECT_ID`와 같은 값)가 필요하다. ID 토큰 검증은 Firebase 공개 인증서를 쓰므로 별도 자격 증명은 필요 없다(인증서를 받으려고 인터넷에 연결되어 있어야 한다).
+`.env`의 `FIREBASE_PROJECT_ID`(프론트엔드의 `NEXT_PUBLIC_FIREBASE_PROJECT_ID`와 같은 값)가 필요하다. 기존 사용자의 ID 토큰 서명 검증은 Firebase 공개 인증서를 쓴다(인터넷 연결 필요). 최초 DB 사용자 생성 전 Firebase 계정 존재 확인, 모든 기기 로그아웃, 회원 탈퇴에는 Firebase Admin SDK 권한을 가진 ADC 또는 개발용 서비스 계정 자격 증명이 필요하다.
 compose로 띄울 때는 저장소 루트의 `.env`에 `FIREBASE_PROJECT_ID`를 둔다.
+
+프로필 이미지는 `POST /api/v1/me/avatar`에 JPG/PNG 원본 바이트를 보내며 최대 2MB다. `GCS_BUCKET`은 비공개 버킷으로 설정한다. 서버 자격 증명에 객체 읽기·쓰기·삭제 권한을 부여하고, 읽기 Signed URL 발급을 위해 서명 가능한 서비스 계정 또는 `GCS_SIGNER_SERVICE_ACCOUNT`와 IAM `signBlob` 권한을 준비한다. 쓰기 Signed URL은 발급하지 않는다. 자격 증명 파일과 키는 커밋하지 않는다.
+
+Docker에서는 호스트 ADC가 자동으로 전달되지 않는다. 개인용 Compose override에서 자격 증명 파일을 읽기 전용으로 마운트하고, `GOOGLE_APPLICATION_CREDENTIALS`를 컨테이너 안의 해당 경로로 지정한다. 개인 경로·자격 증명을 공유 Compose 파일에 넣지 않는다.
+
+탈퇴 실패 시 `deleting` 행을 유지하고 일반 요청을 차단한다. 서버가 시작 시와 실행 중 30초마다 삭제를 재시도하며 Firebase·파일 삭제가 완료된 뒤 DB를 마지막으로 삭제한다. Cloud Run에서 요청이 없을 때도 재시도하려면 상시 CPU와 최소 인스턴스를 설정한다. 개발 환경에서는 서버를 실행한 동안 재시도한다.
+
+설명 학습은 기존 `ready` 자료의 개념·체크리스트·근거 청크를 사용한다. 이번 구현에는 자료 업로드와 개념 추출이 포함되지 않으며, `tests/test_sessions.py`가 실제 API와 테스트용 자료·가짜 AI 응답으로 흐름을 검증한다. 실제 학습 판정에는 `.env.llm` 설정이 필요하다.
 
 ## 검사와 테스트
 

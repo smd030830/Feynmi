@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from account_fakes import FakeCloud
 from fastapi import FastAPI
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -46,6 +47,7 @@ async def client(engine: AsyncEngine) -> AsyncIterator[httpx.AsyncClient]:
         firebase_project_id="test",
     )
     app: FastAPI = create_app(settings, token_verifier=verify)
+    app.state.account_cloud = FakeCloud()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # 첫 요청으로 사용자 행을 만들고 닉네임을 채운다.

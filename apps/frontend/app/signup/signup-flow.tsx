@@ -14,6 +14,7 @@ import { Input } from "@/components/input";
 import { NicknameForm } from "@/components/nickname-form";
 import { authErrorMessage, nextAuthStep } from "@/lib/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { recordLogin } from "@/lib/api";
 
 const RESEND_WAIT_SECONDS = 60; // PRD FR-4.1
 
@@ -95,6 +96,7 @@ function EmailStep({ onSent }: { onSent: (sentAt: number) => void }) {
     try {
       // 계정이 만들어지면 로그인 상태가 되어 ② 단계로 넘어간다
       const { user } = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
+      await recordLogin().catch(() => undefined);
       await sendEmailVerification(user);
       onSent(Date.now());
     } catch (err) {

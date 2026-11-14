@@ -55,16 +55,22 @@ def test_settings_load_root_env_outside_working_directory(
 
     env_file = tmp_path / ".env"
     env_file.write_text(
-        f"DATABASE_URL={UNUSED_DATABASE_URL}\nFIREBASE_PROJECT_ID=local-project\n",
+        f"DATABASE_URL={UNUSED_DATABASE_URL}\nFIREBASE_PROJECT_ID=local-project\n"
+        "GCS_BUCKET=private-test-bucket\nGCS_SIGNER_SERVICE_ACCOUNT=signer@example.invalid\n",
         encoding="utf-8",
     )
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    monkeypatch.delenv("GCS_BUCKET", raising=False)
+    monkeypatch.delenv("GCS_SIGNER_SERVICE_ACCOUNT", raising=False)
     monkeypatch.setitem(config.Settings.model_config, "env_file", env_file)
     monkeypatch.chdir(tmp_path.parent)
     settings = Settings()  # pyright: ignore[reportCallIssue]
     assert settings.database_url == UNUSED_DATABASE_URL
     assert settings.firebase_project_id == "local-project"
+    cloud = create_app(settings).state.account_cloud
+    assert cloud.bucket_name == "private-test-bucket"
+    assert cloud.signer_email == "signer@example.invalid"
 
 
 @pytest.mark.parametrize(

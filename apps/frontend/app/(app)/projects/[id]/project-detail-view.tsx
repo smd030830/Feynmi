@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
 import { ProgressRing } from "@/components/progress-ring";
 import { ProjectTile } from "@/components/project-tile";
 import { StateDistributionBar } from "@/components/state-distribution-bar";
-import { ApiError, apiErrorMessage, getProject, type Project } from "@/lib/api";
+import { StateBadge } from "@/components/learning-feedback";
+import { ApiError, apiErrorMessage, getProject, listConcepts, startSession, type Concept, type Project } from "@/lib/api";
 
 const tabs = [
   { key: "concepts", label: "개념" },
@@ -26,18 +27,21 @@ function tabCount(project: Project, tab: TabKey) {
 
 export function ProjectDetailView() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const tab: TabKey = tabs.some((t) => t.key === tabParam) ? (tabParam as TabKey) : "concepts";
 
   // undefined: 불러오는 중
-  const [loaded, setLoaded] = useState<{ id: string; project?: Project; error?: unknown }>();
+  const [loaded, setLoaded] = useState<{ id: string; project?: Project; concepts?: Concept[]; recommendedId?: string; error?: unknown }>();
   const [attempt, setAttempt] = useState(0);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    getProject(id).then(
-      (project) => !cancelled && setLoaded({ id, project }),
+    Promise.all([getProject(id), listConcepts(id)]).then(
+      ([project, concepts]) => !cancelled && setLoaded({ id, project, concepts: concepts.items, recommendedId: concepts.recommendation?.concept_id }),
       (error) => !cancelled && setLoaded({ id, error }),
     );
     return () => {
@@ -46,6 +50,13 @@ export function ProjectDetailView() {
   }, [id, attempt]);
 
   const current = loaded?.id === id ? loaded : undefined;
+  const concepts = current?.concepts ?? [];
+  const nextConcept = concepts.find((concept) => concept.id === current?.recommendedId);
+  async function begin(conceptId: string) {
+    setStarting(true); setStartError("");
+    try { const session = await startSession(conceptId); setStarting(false); router.push(`/sessions/${session.id}`); }
+    catch (err) { setStartError(apiErrorMessage(err)); setStarting(false); }
+  }
 
   if (current?.error) {
     const notFound = current.error instanceof ApiError && current.error.code === "not_found";
@@ -107,10 +118,10 @@ export function ProjectDetailView() {
         </div>
         <div className="flex shrink-0 flex-col items-center gap-4 max-[600px]:w-full max-[600px]:flex-row max-[600px]:justify-between">
           <ProgressRing score={project.score} />
-          {/* 취약 개념 1순위로 새 세션 (FM-030). 개념이 없으면 비활성 */}
-          <Button disabled>학습 시작하기</Button>
+          <Button disabled={!nextConcept || starting} onClick={() => nextConcept && void begin(nextConcept.id)}>{starting ? "학습 준비 중…" : "학습 시작하기"}</Button>
         </div>
       </header>
+      {startError && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{startError}</p>}
 
       <div>
         <div role="tablist" aria-label="프로젝트 탭" className="flex gap-[25px] border-b border-line max-[600px]:gap-4 max-[600px]:overflow-x-auto">
@@ -144,7 +155,8 @@ export function ProjectDetailView() {
         </div>
 
         <div role="tabpanel" className="pt-6">
-          {tab === "concepts" && (
+          {tab === "concepts" && concepts.length > 0 && <div className="space-y-3">{concepts.map((concept) => <section key={concept.id} className="flex items-center gap-5 rounded-card border border-line bg-surface p-5"><div className="min-w-0 flex-1"><p className="text-caption text-subtle">{concept.material_title}</p><h2 className="mt-1 text-subheading font-bold">{concept.title}</h2></div><StateBadge state={concept.state} /><span className="min-w-12 text-right text-body font-bold text-muted">{concept.score === null ? "-" : `${concept.score}%`}</span><Button variant="soft" disabled={starting} onClick={() => void begin(concept.id)}>{concept.state === "not_studied" ? "학습하기" : "다시 학습"}</Button></section>)}</div>}
+          {tab === "concepts" && concepts.length === 0 && (
             <EmptyState
               icon="book"
               title="아직 개념이 없어요"

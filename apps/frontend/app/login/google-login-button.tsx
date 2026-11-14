@@ -6,6 +6,7 @@ import { Button, OutlineButtonContent } from "@/components/button";
 import { GoogleIcon } from "@/components/icon";
 import { authErrorMessage } from "@/lib/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { recordLogin } from "@/lib/api";
 
 export function GoogleLoginButton() {
   const [pending, setPending] = useState(false);
@@ -17,6 +18,7 @@ export function GoogleLoginButton() {
     try {
       // 로그인되면 GuestOnly가 홈으로 보낸다
       await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider());
+      await recordLogin().catch(() => undefined);
     } catch (err) {
       setError(authErrorMessage(err) ?? "");
       setPending(false);

@@ -410,15 +410,17 @@ sequenceDiagram
 
 ### 7.7 계정 관리 (PRD FR-4.1, FR-4.6, FR-4.7)
 - **닉네임**: `PATCH /me/profile`. 이메일 가입 ③ 단계, 구글 온보딩, 설정이 같은 API를 쓴다.
-- **프로필 이미지**: 자료 업로드와 같은 Signed URL 방식이다. `POST /me/avatar/upload-url`(JPG/PNG, 2MB 범위 헤더) → GCS PUT → `POST /me/avatar/complete`. 경로는 `users/{user_id}/avatar/{uuid}.{ext}`이고, 바꾸면 이전 객체를 지운다. 표시용으로 응답에 짧은 만료의 읽기 Signed URL을 넣는다.
+- **프로필 이미지**: `POST /me/avatar`에 `Content-Type: image/jpeg` 또는 `image/png`와 원본 바이트를 보낸다. 서버가 스트림을 2MB로 제한하고 형식을 확인한 뒤, 사용자 행을 잠그고 활성 상태를 다시 확인하여 GCS 업로드와 탈퇴를 직렬화한다. 경로는 `users/{user_id}/avatar/{uuid}.{ext}`이고, 바꾸면 이전 객체를 지운다. 요청이 취소되어도 진행 중 업로드가 끝날 때까지 잠금을 유지한다. 쓰기 Signed URL은 발급하지 않아 탈퇴 뒤 파일이 다시 생기는 것을 막는다. 표시용으로만 짧은 만료의 읽기 Signed URL을 반환한다.
 - **로그인 기록**: `POST /me/login-events`가 `User-Agent`를 브라우저/OS 요약 문자열로 바꿔 저장한다. IP는 저장하지 않는다. 조회는 최근 10건이다.
 - **모든 기기에서 로그아웃**: `POST /me/revoke-sessions`가 `users.tokens_revoked_at = now()`로 바꾸고 Firebase `revoke_refresh_tokens(uid)`를 호출한다. 이후 기존 토큰은 5.2-3에서 거부된다. 프론트는 응답을 받으면 로그아웃하고 `/login`으로 보낸다.
 - **회원 탈퇴**: `DELETE /me`(본문 `{"confirm": "탈퇴"}`)는 다음 순서로 처리한다.
   1. 사용자를 `deleting` 상태로 표시해 새 요청을 막는다.
   2. GCS의 `users/{user_id}/` 접두사 객체를 모두 지운다.
-  3. DB에서 사용자 행을 지워 FK `ON DELETE CASCADE`로 모든 데이터를 지운다.
-  4. Firebase `delete_user(uid)`를 호출한다.
-  - 중간에 실패하면 500을 반환하고 같은 요청으로 다시 시도할 수 있게 각 단계를 멱등으로 만든다. 진행 중인 분석 작업은 자료가 없으면 2xx로 끝낸다.
+  3. Firebase `delete_user(uid)`를 호출한다. 이미 삭제된 계정은 성공으로 취급한다.
+  4. 모든 외부 삭제가 성공한 뒤 DB 사용자 행을 마지막으로 삭제하여 FK `ON DELETE CASCADE`로 데이터를 지운다.
+  - 중간에 실패하면 재시도 가능한 오류를 반환하고 `deleting` 행을 유지한다. 일반 요청은 차단하고 탈퇴 재요청만 허용한다. 서버는 시작 시 및 실행 중 30초마다 이 행을 조회해 재시도하므로 토큰 만료나 Firebase 계정 삭제 후에도 복구할 수 있다. Cloud Run에서 요청 없이도 재시도하려면 상시 CPU 할당과 최소 인스턴스를 설정한다. 서버가 중지되었으면 재시작 후 재시도한다.
+  - 최초 DB 사용자 생성과 최종 탈퇴 처리는 Firebase UID별 PostgreSQL advisory lock으로 직렬화한다. DB에 없는 UID는 Admin SDK로 Firebase 계정 존재·활성·토큰 폐기 시점을 확인한 뒤 생성하여 삭제된 계정의 잔존 ID 토큰으로 사용자가 재생성되지 않게 한다. 기존 DB 사용자의 서명 검증 방식은 유지한다.
+  - 진행 중인 분석 작업은 자료가 없으면 2xx로 끝낸다.
 
 ---
 
@@ -435,9 +437,9 @@ sequenceDiagram
 | 메서드/경로 | 설명 | 추가 조건 | FM |
 |---|---|---|---|
 | `GET /me` | 사용자 정보: 닉네임, 이메일, 로그인 수단, `email_verified`, `ai_consent_at`, 아바타 URL | — | 011 |
-| `GET /me/summary` | 사이드바용: 닉네임, 아바타 URL, 주간 7칸, 목표 일수 | 사용자 API | 043 |
+| `GET /me/summary` | 사이드바용 주간 7칸(`study_days`), 목표 일수(`weekly_goal_days`). 닉네임과 아바타는 `GET /me` 사용 | 사용자 API | 043 |
 | `PATCH /me/profile` | 닉네임 변경 | 이메일 인증 | 014, 070 |
-| `POST /me/avatar/upload-url`, `POST /me/avatar/complete`, `DELETE /me/avatar` | 프로필 이미지 | 사용자 API | 070 |
+| `POST /me/avatar` | 프로필 이미지 변경(원본 바이트), 응답 `avatar_url` | 사용자 API | 070 |
 | `POST /me/ai-consent` | 외부 AI 전송 동의 시각 기록 | 사용자 API | 012 |
 | `POST /me/login-events`, `GET /me/login-events` | 로그인 기록 저장 / 최근 10건 | — / 사용자 API | 015, 071 |
 | `POST /me/revoke-sessions` | 모든 기기에서 로그아웃 | 사용자 API | 071 |
@@ -454,6 +456,7 @@ sequenceDiagram
 | `GET /sessions/{id}` | 세션 뷰 (메시지, 최신 평가, 점수) | 〃 | 030, 044 |
 | `POST /sessions/{id}/answers` | 답변 제출과 평가 (동기) | 〃, `in_progress` | 031~033 |
 | `POST /sessions/{id}/abort` | 세션 중단 (멱등) | 〃 | 032 |
+| `POST /sessions/cleanup` | 홈 진입 시 누락된 이탈 알림 보완. 유효한 평가 잠금은 보존 | 〃 | 032 |
 | `GET /sessions/{id}/result` | 결과 화면 데이터 (FR-3.5, 추천 포함) | 〃, `completed`일 때만 | 042 |
 | `GET /records`, `GET /projects/{id}/records` | 학습기록 목록 | 〃 | 044 |
 | `GET /home` | 홈 전체 (7.5) | 〃 | 040, 041, 043, 045 |
@@ -557,6 +560,7 @@ erDiagram
 | `RAG_CHUNK_TOKENS`, `RAG_CHUNK_OVERLAP_TOKENS`, `RAG_TOP_K` | 청크/검색 수치 (PRD 9.4) | |
 | `DATABASE_URL` | asyncpg 접속 문자열 | O |
 | `GCS_BUCKET` | 원본 버킷 | |
+| `GCS_SIGNER_SERVICE_ACCOUNT` | ADC 직접 서명이 불가능할 때 읽기 URL의 IAM 서명 주체 | |
 | `FIREBASE_PROJECT_ID` | ID 토큰 검증 대상 프로젝트 | |
 | `QUEUE_MODE` | `cloud_tasks` 또는 `inline` (로컬) | |
 | `TASKS_PROJECT`, `TASKS_LOCATION`, `TASKS_QUEUE`, `TASKS_INVOKER_SA` | Cloud Tasks 큐와 OIDC 서명 SA | |
@@ -584,7 +588,7 @@ erDiagram
 - `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(`pgvector/pgvector:pg18-trixie` 이미지). `backend`는 기동할 때 `alembic upgrade head`를 먼저 실행한다.
 - `apps/backend/Dockerfile`은 `dev`(compose, 소스 마운트)와 `prod`(Cloud Run, 기본 타깃) 두 타깃이다. 마이그레이션은 `prod` 이미지로도 실행한다(11.1).
 - 백엔드 테스트는 별도 DB(`feynmi_test`)를 쓴다. 테스트가 스키마를 지우므로 DB 이름이 `_test`로 끝나야 한다.
-- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. GCS와 Admin SDK 호출(토큰 폐기, 탈퇴)에는 ADC(`gcloud auth application-default login`)나 개발용 서비스 계정 키(커밋 금지)가 필요하다. ID 토큰 검증에는 필요 없다.
+- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. GCS와 Admin SDK 호출(최초 사용자 생성 전 계정 확인, 토큰 폐기, 탈퇴)에는 ADC나 개발용 서비스 계정 자격 증명(커밋 금지)이 필요하다. 기존 사용자의 ID 토큰 서명 검증 자체에는 필요 없다. Signed URL은 서명 가능한 서비스 계정 자격 증명 또는 `GCS_SIGNER_SERVICE_ACCOUNT`와 IAM 서명 권한이 필요하다.
 - `QUEUE_MODE=inline`이면 큐 등록 대신 같은 프로세스에서 분석 함수를 백그라운드 태스크로 실행한다. 워커 로직은 운영과 같고 전달 경로만 다르다.
 
 ### 11.3 CI (FM-003)

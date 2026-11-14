@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # asyncpg 접속 문자열 (postgresql+asyncpg://user:password@host:5432/db). 기본값은 두지 않는다.
     database_url: str
     firebase_project_id: str
+    gcs_bucket: str = ""
+    gcs_signer_service_account: str = ""
     cors_origins: Annotated[list[str], NoDecode] = []
 
     @field_validator("cors_origins", mode="before")

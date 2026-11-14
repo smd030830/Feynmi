@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.db.models import Concept, Material, Project
 from backend.domain.enums import ConceptState, ProjectColor
 from backend.domain.projects import next_project_color
+from backend.domain.score_rules import average_score
 from backend.errors import AppError
+from backend.services.account import active_user
 
 StateCounts = dict[ConceptState, int]
 
@@ -23,6 +25,7 @@ class ProjectSummary:
     project: Project
     state_counts: StateCounts
     material_count: int
+    score: int | None = None
 
 
 def _empty_counts() -> StateCounts:
@@ -41,7 +44,8 @@ async def next_color(db: AsyncSession, user_id: uuid.UUID) -> ProjectColor:
 async def create_project(
     db: AsyncSession, user_id: uuid.UUID, name: str, description: str | None
 ) -> ProjectSummary:
-    # 동시에 만들면 같은 색이 나올 수 있다. 색은 표시용이라 잠그지 않는다.
+    # 탈퇴 표시와 직렬화하여 삭제가 시작된 계정의 새 데이터 생성을 차단한다.
+    await active_user(db, user_id)
     color = await next_color(db, user_id)
     project = Project(user_id=user_id, name=name, description=description, color=color.value)
     db.add(project)
@@ -69,7 +73,18 @@ async def _summaries(db: AsyncSession, projects: Sequence[Project]) -> list[Proj
         .group_by(Material.project_id)
     )
     materials: dict[uuid.UUID, int] = {pid: n for pid, n in material_rows}
-    return [ProjectSummary(p, counts[p.id], materials.get(p.id, 0)) for p in projects]
+    score_rows = await db.execute(
+        select(Material.project_id, Concept.score)
+        .join(Concept, Concept.material_id == Material.id)
+        .where(Material.project_id.in_(ids))
+    )
+    scores: dict[uuid.UUID, list[int | None]] = {pid: [] for pid in ids}
+    for pid, score in score_rows:
+        scores[pid].append(score)
+    return [
+        ProjectSummary(p, counts[p.id], materials.get(p.id, 0), average_score(scores[p.id]))
+        for p in projects
+    ]
 
 
 async def list_projects(db: AsyncSession, user_id: uuid.UUID) -> list[ProjectSummary]:
