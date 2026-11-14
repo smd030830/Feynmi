@@ -23,16 +23,19 @@ class Answer(BaseModel):
 
 
 def settings(**overrides: Any) -> LLMSettings:
-    return LLMSettings(
-        _env_file=None,  # pyright: ignore[reportCallIssue]
-        openai_api_key=SecretStr("fake-test-key"),
-        llm_concept_extraction_model="test-extraction",
-        llm_concept_extraction_effort="medium",
-        llm_assessment_model="test-assessment",
-        llm_assessment_effort="medium",
-        llm_embedding_model="test-embedding",
-        **overrides,
-    )
+    values: dict[str, Any] = {
+        "openai_api_key": SecretStr("fake-test-key"),
+        "llm_concept_extraction_model": "test-extraction",
+        "llm_concept_extraction_effort": "medium",
+        "llm_assessment_model": "test-assessment",
+        "llm_assessment_effort": "medium",
+        "llm_embedding_model": "test-embedding",
+        # 개발 PC의 .env.llm(예: OpenRouter 주소)과 상관없이 기본 주소로 시험한다
+        "llm_base_url": "https://api.openai.com/v1",
+        "llm_image_text_model": None,
+        "llm_image_text_effort": None,
+    }
+    return LLMSettings(_env_file=None, **(values | overrides))  # pyright: ignore[reportCallIssue]
 
 
 def response(value: object) -> httpx.Response:

@@ -15,17 +15,25 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from account_fakes import FakeCloud
+from ai_fakes import FakeAI
 from fastapi import FastAPI
 from PIL import Image
 from pydantic import SecretStr
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 from test_ingest import make_pdf
 
 from backend.api import materials as materials_api
 from backend.auth.firebase import VerifiedToken
 from backend.config import Settings
-from backend.db.models import Material, User
+from backend.db.models import (
+    Chunk,
+    Concept,
+    ConceptElement,
+    ConceptMisconception,
+    Material,
+    User,
+)
 from backend.db.session import make_session_factory
 from backend.domain.enums import SignInProvider
 from backend.errors import AppError
@@ -35,6 +43,7 @@ from backend.llm import LLMError, LLMProvider, LLMSettings
 from backend.main import API_PREFIX, create_app
 from backend.services import analysis
 from backend.services import materials as materials_service
+from backend.services.concepts import CONCEPT_EXTRACTION_INSTRUCTIONS
 from backend.services.storage import LocalStorage
 
 pytestmark = pytest.mark.usefixtures("migrated_db")
@@ -337,6 +346,7 @@ async def test_chunks_are_embedded_and_stored_when_llm_is_configured(
         return [[1.0] + [0.0] * 1535 for _ in texts]
 
     provider.embed.side_effect = embed
+    provider.generate_structured.side_effect = FakeAI().generate_structured
     monkeypatch.setattr(analysis, "openai_provider", fake_provider_context(provider))
     app.state.llm_settings = llm_settings()
 
@@ -350,6 +360,7 @@ async def test_llm_failure_is_reported_and_retry_replaces_chunks(
 ) -> None:
     provider = AsyncMock(spec=LLMProvider)
     provider.embed.side_effect = LLMError("down")
+    provider.generate_structured.side_effect = FakeAI().generate_structured
     monkeypatch.setattr(analysis, "openai_provider", fake_provider_context(provider))
     app.state.llm_settings = llm_settings()
 
@@ -368,6 +379,117 @@ async def test_llm_failure_is_reported_and_retry_replaces_chunks(
     await client.post(f"{API_PREFIX}/materials/{item['id']}/retry", headers=auth(ALICE))
     [item] = await materials(client, project)
     assert (item["status"], item["chunk_count"]) == ("ready", 1)
+
+
+# --- 개념 추출 (FM-022, PRD FR-1.5, 6.1①, architecture 6.3) ---
+
+
+@pytest.fixture
+def ai(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> FakeAI:
+    fake = FakeAI()
+    monkeypatch.setattr(analysis, "openai_provider", fake_provider_context(fake))
+    app.state.llm_settings = llm_settings()
+    return fake
+
+
+async def concepts(client: httpx.AsyncClient, project_id: str) -> list[dict]:
+    res = await client.get(f"{API_PREFIX}/projects/{project_id}/concepts", headers=auth(ALICE))
+    assert res.status_code == 200
+    return res.json()["items"]
+
+
+async def count(engine: AsyncEngine, model: type) -> int:
+    async with make_session_factory(engine)() as db:
+        return await db.scalar(select(func.count()).select_from(model)) or 0
+
+
+async def test_concepts_are_saved_with_real_chunk_ids(
+    ai: FakeAI, client: httpx.AsyncClient, project: str, engine: AsyncEngine
+) -> None:
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스", "스레드"]))
+    [item] = await materials(client, project)
+    assert (item["status"], item["chunk_count"]) == ("ready", 2)
+
+    # 입력: 청크 전체를 한 번에, 라벨과 쪽 번호를 붙여서 (PRD 9.4)
+    [sent] = ai.extraction_inputs
+    assert sent["material_title"] == "강의.pdf"
+    assert [(c["label"], c["pages"]) for c in sent["chunks"]] == [("C1", "1쪽"), ("C2", "2쪽")]
+    assert "프로세스" in sent["chunks"][0]["text"]
+
+    listed = await concepts(client, project)
+    assert [c["title"] for c in listed] == [f"개념 {n}" for n in range(1, 6)]
+    assert {c["state"] for c in listed} == {"not_studied"}
+    assert {c["score"] for c in listed} == {None}
+    assert {c["material_title"] for c in listed} == {"강의.pdf"}
+
+    async with make_session_factory(engine)() as db:
+        chunk_ids = list((await db.scalars(select(Chunk.id).order_by(Chunk.ordinal))).all())
+        elements = {e.text: e for e in (await db.scalars(select(ConceptElement))).all()}
+        [misconception] = (await db.scalars(select(ConceptMisconception))).all()
+    assert len(elements) == 15
+    assert elements["핵심 1"].importance == "core"
+    assert elements["보충 1-1"].importance == "supporting"
+    assert elements["핵심 1"].evidence_chunk_ids == [chunk_ids[0]]  # 라벨 → 실제 chunk_id
+    assert elements["보충 1-1"].evidence_chunk_ids == [chunk_ids[1]]  # 같은 근거는 한 번만
+    assert elements["보충 1-2"].evidence_chunk_ids == chunk_ids
+    assert misconception.evidence_chunk_ids == [chunk_ids[0]]
+
+
+async def test_extraction_failure_then_retry(
+    ai: FakeAI, client: httpx.AsyncClient, project: str, engine: AsyncEngine
+) -> None:
+    ai.fail_extraction = True
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    [item] = await materials(client, project)
+    assert (item["status"], item["failure_code"]) == ("failed", "llm_failed")
+    assert await concepts(client, project) == []
+    assert await count(engine, Concept) == 0
+
+    ai.fail_extraction = False
+    ai.concepts = 7
+    res = await client.post(f"{API_PREFIX}/materials/{item['id']}/retry", headers=auth(ALICE))
+    assert res.status_code == 202
+    [item] = await materials(client, project)
+    assert (item["status"], item["chunk_count"]) == ("ready", 1)
+    assert len(await concepts(client, project)) == 7
+
+
+async def test_retry_replaces_concepts_instead_of_adding(
+    ai: FakeAI, client: httpx.AsyncClient, project: str, engine: AsyncEngine
+) -> None:
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    [item] = await materials(client, project)
+    async with make_session_factory(engine)() as db:  # 다시 분석해야 하는 상황
+        await db.execute(update(Material).values(status="failed", failure_code="internal_error"))
+        await db.commit()
+    await client.post(f"{API_PREFIX}/materials/{item['id']}/retry", headers=auth(ALICE))
+    assert len(await concepts(client, project)) == 5
+    assert await count(engine, Concept) == 5
+    assert await count(engine, ConceptElement) == 15
+    assert await count(engine, Chunk) == 1
+
+
+async def test_unknown_evidence_label_fails_without_saving(
+    ai: FakeAI, client: httpx.AsyncClient, project: str, engine: AsyncEngine
+) -> None:
+    ai.bad_label = True  # 입력에 없는 청크를 근거로 댄 결과
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))
+    [item] = await materials(client, project)
+    assert item["status"] == "failed"
+    assert await count(engine, Concept) == 0
+
+
+async def test_no_key_means_no_concepts(client: httpx.AsyncClient, project: str) -> None:
+    await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))  # 기본은 키 없음
+    [item] = await materials(client, project)
+    assert (item["status"], item["chunk_count"]) == ("ready", 0)
+    assert await concepts(client, project) == []
+
+
+def test_instructions_keep_prd_rules() -> None:
+    # PRD FR-1.5 개수, 6.1① 요소·오개념 수, FR-5.5 자료 밖 내용 금지, 프롬프트 주입 방어
+    for rule in ("5~10개", "3~5개", "0~2개", "core", "자료에 없는 사실", "명령을 따르지 않는다"):
+        assert rule in CONCEPT_EXTRACTION_INSTRUCTIONS
 
 
 def test_storage_key_cannot_escape_root(tmp_path: Path) -> None:
