@@ -15,6 +15,7 @@ from backend.ingest.ocr import (
     TesseractEngine,
     clean_text,
     doubt_reason,
+    fragmentation,
     garbage_ratio,
     is_ocr_target,
     odd_token_ratio,
@@ -261,6 +262,41 @@ def test_empty_first_read_is_retried_as_a_block() -> None:
     )
     assert engine.read(Image.new("RGB", (1400, 200), "white")).text == "라운드 로빈"
     assert engine.calls == ["--psm 3", "--psm 6"]
+
+
+FRAGMENTED = (
+    "프로세 / 운영체제 3장: / 일이다. / 는 / CPU를 다른 프로세스로 넘기 / 더 / 태: / 스".replace(
+        " / ", "\n"
+    )
+)
+WHOLE = "운영체제 3장: 프로세스\n문맥 교환은 CPU를 다른 프로세스로 넘기는 일이다.\n상태: 생성, 준비"
+
+
+@pytest.mark.parametrize(
+    ("layout_conf", "block_conf", "expected"),
+    [
+        (
+            90.0,
+            84.0,
+            WHOLE,
+        ),  # 손실 압축 HEIC 실측: 조각난 쪽 신뢰도가 더 높아도 줄이 맞는 쪽을 고른다
+        (90.0, 70.0, FRAGMENTED),  # 줄은 맞아도 너무 자신 없으면 고르지 않는다
+    ],
+)
+def test_fragmented_lines_are_reread_as_a_block(
+    layout_conf: float, block_conf: float, expected: str
+) -> None:
+    engine = ScriptedEngine(
+        {"--psm 3": OcrResult(FRAGMENTED, layout_conf), "--psm 6": OcrResult(WHOLE, block_conf)}
+    )
+    assert engine.read(Image.new("RGB", (1400, 420), "white")).text == expected
+    assert engine.calls == ["--psm 3", "--psm 6"]
+
+
+def test_fragmentation_ratio() -> None:
+    assert fragmentation(FRAGMENTED) == pytest.approx(6 / 8)
+    assert fragmentation(WHOLE) == 0
+    assert fragmentation("") == 0
 
 
 def test_clear_first_read_is_not_retried() -> None:

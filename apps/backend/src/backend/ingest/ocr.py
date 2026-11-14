@@ -88,11 +88,18 @@ class TesseractEngine:
     def read(self, image: Image.Image) -> OcrResult:
         prepared = prepare(image)
         result = self._run(prepared, _LAYOUT_PSM)
-        # 쪽 배치 모드는 한 줄짜리 한글 띠 그림(슬라이드 속 캡션 등)에서 글자를 통째로 놓친다.
-        # 아무것도 못 읽었거나 자신 없는 단어가 많으면 글 덩어리 모드로 한 번 더 읽는다.
-        if not result.text or result.weak_ratio > self.settings.ocr_retry_weak_ratio:
+        # 쪽 배치 모드(psm 3)가 실패하는 경우 글 덩어리 모드(psm 6)로 한 번 더 읽는다.
+        # - 아무것도 못 읽음: 한 줄짜리 한글 띠 그림(슬라이드 속 캡션 등)
+        # - 자신 없는 단어가 많음
+        # - 줄이 조각남: 손실 압축 사진(JPG·HEIC)에서 한 줄을 여러 조각으로 나눠 순서까지 섞는다
+        #   ("운영체제 3장: 프로세스" → "프로세 / 운영체제 3장: / … / 스")
+        if (
+            not result.text
+            or result.weak_ratio > self.settings.ocr_retry_weak_ratio
+            or fragmentation(result.text) >= _FRAGMENTED
+        ):
             block = self._run(prepared, _BLOCK_PSM)
-            if (block.confidence or 0) > (result.confidence or 0):
+            if _is_better(block, result):
                 result = block
         return result
 
@@ -124,6 +131,38 @@ class TesseractEngine:
             text = out.with_suffix(".txt").read_text(encoding="utf-8")
             tsv = out.with_suffix(".tsv").read_text(encoding="utf-8")
         return reliable_result(text, tsv, self.settings.ocr_min_line_confidence)
+
+
+# 공백을 뺀 글자 수가 이 이하인 줄을 "조각"으로 본다
+_SHORT_LINE = 4
+# 조각 줄 비율이 이 이상이면 줄이 조각난 것으로 본다 (손실 압축 사진에서 0.4~0.7, 정상 글은 낮음)
+_FRAGMENTED = 0.3
+# 두 결과의 신뢰도가 이만큼 안쪽으로 비슷하면, 덜 조각난 쪽을 고른다
+_CONFIDENCE_SLACK = 3.0
+# 절반 넘게 조각났으면 조각마다 신뢰도가 높게 나와 믿기 어렵다. 이때는 차이를 더 봐준다
+# (손실 압축 HEIC: 조각난 결과 90, 제대로 줄을 맞춘 결과 84)
+_HEAVY_FRAGMENTED = 0.5
+_HEAVY_SLACK = 10.0
+
+
+def fragmentation(text: str) -> float:
+    """조각 줄(공백 뺀 글자 4자 이하)의 비율."""
+    lines = [line for line in text.split("\n") if line.strip()]
+    if not lines:
+        return 0.0
+    return sum(len("".join(line.split())) <= _SHORT_LINE for line in lines) / len(lines)
+
+
+def _is_better(block: OcrResult, layout: OcrResult) -> bool:
+    """글 덩어리 모드 결과를 쓸지: 신뢰도가 더 높거나, 비슷하면서 덜 조각났을 때."""
+    if not block.text:
+        return False
+    block_conf, layout_conf = block.confidence or 0, layout.confidence or 0
+    if block_conf > layout_conf:
+        return True
+    layout_frag, block_frag = fragmentation(layout.text), fragmentation(block.text)
+    slack = _HEAVY_SLACK if layout_frag >= _HEAVY_FRAGMENTED else _CONFIDENCE_SLACK
+    return block_conf >= layout_conf - slack and block_frag < layout_frag
 
 
 def clean_text(text: str) -> str:
