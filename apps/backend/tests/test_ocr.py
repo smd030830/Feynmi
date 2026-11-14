@@ -17,6 +17,7 @@ from backend.ingest.ocr import (
     doubt_reason,
     fragmentation,
     garbage_ratio,
+    garbled_tokens,
     is_ocr_target,
     odd_token_ratio,
     prepare,
@@ -207,6 +208,30 @@ def test_bullets_and_normal_symbols_are_not_odd() -> None:
     assert odd_token_ratio(text) == 0.0
     result = OcrResult(text, confidence=90.0)
     assert doubt_reason(result, (880, 368), SETTINGS) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "garbled"),
+    [
+        # 코드 캡처를 신뢰도 85로 읽은 결과: "public class PhotonInit : MonoBehaviourPunCallbacks"
+        ("public class 바101001011 : MonoBehaviourPunCallbacks", ["바101001011"]),
+        ("public GameObject 50ㅠ01100016015; //부모 객체", ["50ㅠ01100016015;"]),
+        ("//800011081을 클릭하면 호출되는 함수", ["//800011081을"]),
+        ("다음의 추가 패키지가 설치될 것입니다 libgnome-games 0ㅇ0101000", ["0ㅇ0101000"]),
+    ],
+)
+def test_hangul_read_as_digits_is_doubtful(text: str, garbled: list[str]) -> None:
+    assert garbled_tokens(text) == garbled
+    result = OcrResult(text, confidence=88.0, weak_ratio=0.05)
+    assert doubt_reason(result, (1259, 347), SETTINGS) == f"garbled tokens {len(garbled)}"
+
+
+def test_numbers_next_to_korean_are_not_garbled() -> None:
+    text = (
+        "2024000001_운영체제_과제.docx 과제 지원금 790,000원 10000원\n"
+        "작업1~작업3까지의 합계 반환시간은 123초 2026년 11월 9일 ch09_a.txt x86_64 2¹²"
+    )
+    assert garbled_tokens(text) == []
 
 
 def test_prepare_flattens_transparency_and_upscales_small_images() -> None:

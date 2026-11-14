@@ -343,7 +343,27 @@ def doubt_reason(
         return f"many odd tokens {odd:.0%}"
     if result.dropped_ratio > settings.ocr_max_dropped_ratio:
         return f"many lines dropped {result.dropped_ratio:.0%}"
+    garbled = garbled_tokens(result.text)
+    if garbled:
+        return f"garbled tokens {len(garbled)}"
     return None
+
+
+# 한글을 숫자 덩어리로 잘못 읽은 낱말. 코드 캡처처럼 신뢰도가 80~90으로 높게 나와도 생긴다
+# ("public class 바101001011", "50ㅠ01100016015", "//800011081을 클릭하면").
+# - 한글·홑자모·괄호 기호 바로 뒤에 숫자 5개 이상,
+#   또는 숫자 6개 이상 바로 뒤에 한글·홑자모·괄호 기호
+#   ("10000원", "2024000001_과제"처럼 숫자 5개 이하이거나 _ 로 떨어진 것은 정상)
+# - 홑자모가 영문·숫자와 붙어 있음 ("0ㅇ0101000")
+_KOREAN_OR_ODD = "가-힣ㄱ-ㅣ『』「」【】"
+_GARBLED = re.compile(
+    rf"[{_KOREAN_OR_ODD}]\d{{5,}}|\d{{6,}}[{_KOREAN_OR_ODD}]|[ㄱ-ㅣ][0-9A-Za-z]|[0-9A-Za-z][ㄱ-ㅣ]"
+)
+
+
+def garbled_tokens(text: str) -> list[str]:
+    """한글이 숫자로 깨져 읽힌 낱말들."""
+    return [token for token in text.split() if _GARBLED.search(token)]
 
 
 # 정상 글에는 드문 기호. OCR이 글자를 잘못 읽으면 자주 나온다
