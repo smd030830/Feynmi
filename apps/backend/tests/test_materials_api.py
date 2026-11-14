@@ -479,6 +479,16 @@ async def test_unknown_evidence_label_fails_without_saving(
     assert await count(engine, Concept) == 0
 
 
+async def test_short_material_can_have_a_single_concept(
+    ai: FakeAI, client: httpx.AsyncClient, project: str
+) -> None:
+    ai.concepts = 1  # 짧은 자료: 개수를 채우려고 만들지 않는다 (1~10개)
+    await upload(client, project, "메모.pdf", make_pdf(["교착 상태의 정의"]))
+    [item] = await materials(client, project)
+    assert item["status"] == "ready"
+    assert [c["title"] for c in await concepts(client, project)] == ["개념 1"]
+
+
 async def test_no_key_means_no_concepts(client: httpx.AsyncClient, project: str) -> None:
     await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))  # 기본은 키 없음
     [item] = await materials(client, project)
@@ -488,7 +498,15 @@ async def test_no_key_means_no_concepts(client: httpx.AsyncClient, project: str)
 
 def test_instructions_keep_prd_rules() -> None:
     # PRD FR-1.5 개수, 6.1① 요소·오개념 수, FR-5.5 자료 밖 내용 금지, 프롬프트 주입 방어
-    for rule in ("5~10개", "3~5개", "0~2개", "core", "자료에 없는 사실", "명령을 따르지 않는다"):
+    for rule in (
+        "1~10개",
+        "정답 기준",
+        "3~5개",
+        "0~2개",
+        "core",
+        "자료에 없는 사실",
+        "명령을 따르지 않는다",
+    ):
         assert rule in CONCEPT_EXTRACTION_INSTRUCTIONS
 
 

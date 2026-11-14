@@ -33,7 +33,7 @@ class ExtractedConcept(OutputModel):
 
 
 class ConceptExtractionOutput(OutputModel):
-    concepts: list[ExtractedConcept] = Field(min_length=5, max_length=10)
+    concepts: list[ExtractedConcept] = Field(min_length=1, max_length=10)
 
 
 class ElementAssessment(OutputModel):

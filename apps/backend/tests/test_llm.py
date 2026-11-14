@@ -238,9 +238,12 @@ def test_concept_schema_and_semantics() -> None:
         validate_concept_extraction(
             ConceptExtractionOutput.model_validate(body), chunk_labels={"C1"}
         )
-    body["concepts"] = body["concepts"][:4]
-    with pytest.raises(ValidationError):
-        ConceptExtractionOutput.model_validate(body)
+    # 개념 수는 1~10개 (짧은 자료는 1개도 된다)
+    concepts = extraction()["concepts"]
+    assert len(ConceptExtractionOutput.model_validate({"concepts": concepts[:1]}).concepts) == 1
+    for wrong in ([], concepts * 3):  # 0개, 15개
+        with pytest.raises(ValidationError):
+            ConceptExtractionOutput.model_validate({"concepts": wrong})
 
 
 def test_assessment_requires_exact_elements_quotes_and_known_evidence() -> None:
