@@ -94,7 +94,7 @@ Feynmi/
 │     │  │  ├─ ranking.py       # 취약 개념 정렬, 추천 (PRD FR-4.3, FR-3.4)
 │     │  │  └─ stats.py         # 학습일·연속일·주간 위젯·알림 조건 (PRD FR-4.8, FR-4.9)
 │     │  ├─ services/           # 유스케이스: projects, materials, analysis, sessions, records, home, account
-│     │  ├─ ingest/             # pdf.py(pypdf), pptx.py(python-pptx), chunker.py
+│     │  ├─ ingest/             # 형식별 파서(pdf, pptx, docx, hwp, hwpx, text, image), ocr.py, sections.py, cleanup.py
 │     │  ├─ rag/                # embed.py, retrieve.py
 │     │  ├─ llm/                # LLM 모듈 (6장)
 │     │  │  ├─ provider.py      # 공급자 인터페이스
@@ -208,6 +208,9 @@ class LLMProvider(Protocol):
 - `LLMTask`는 `concept_extraction`과 `assessment` 두 가지다. 작업별 모델 ID와 `reasoning.effort`는 설정(`LLM_<TASK>_MODEL`, `LLM_<TASK>_EFFORT`)에서 가져온다. 코드에는 기본값을 두지 않으며, 값이 없으면 기동할 때 실패한다.
 - `OpenAIProvider`는 Responses API의 Structured Outputs(strict JSON 스키마, Pydantic 모델에서 생성)를 쓰고, 임베딩은 Embeddings API를 쓴다. temperature에 의존하지 않는다 (PRD 6.1⑤).
 - 공급자를 바꿀 때는 `LLMProvider` 구현만 추가한다 (PRD FR-5.3). 서비스 계층은 `llm.tasks`의 함수만 호출한다.
+- 요청 주소는 `LLM_BASE_URL`(기본 `https://api.openai.com/v1`)이다. OpenRouter처럼 OpenAI 호환 주소를 쓰면 모델 ID에 공급자 접두어가 붙는다 (PRD 9.2).
+- 그림 글자 읽기(`read_image_text`)는 OCR 쪽 규약(`ingest.ocr.ImageTextReader`)으로 따로 두고 `LLMProvider`에는 넣지 않는다. 모델은 `LLM_IMAGE_TEXT_MODEL`이고, 비우면 AI로 다시 읽지 않는다 (7.1 OCR).
+- 재시도할 때마다 이유(스키마 위치·종류, 검증 메시지, 네트워크 오류 종류)를 경고 로그로 남긴다. 학습자 답·자료 글자·키는 남기지 않는다.
 
 ### 6.2 재시도와 검증 (PRD FR-5.4)
 - 다음 중 하나가 발생하면 재시도한다. 최대 횟수는 `LLM_MAX_RETRIES`이며 초기값은 PRD 9.4를 따른다. 재시도 사이에는 지수 백오프를 둔다.
@@ -222,7 +225,9 @@ class LLMProvider(Protocol):
 | 답변 평가 | 체크리스트의 모든 요소에 판정이 정확히 1개씩 존재, `learner_quote`가 세션 누적 답변의 부분 문자열(공백 정규화 후), 참조한 청크 ID가 입력에 존재 |
 
 ### 6.3 개념 추출 (PRD 6.1①, FR-1.5)
-- 입력: 청크 전체를 한 번에 넣는다. 각 청크 앞에 짧은 라벨(`[C1]`, `[C2]` …)과 쪽/슬라이드 번호를 붙인다. 라벨은 서버에서 실제 `chunk_id`로 바꾼다.
+- 입력: 청크 전체를 한 번에 넣는다. 각 청크에 짧은 라벨(`C1`, `C2` …)과 쪽/슬라이드 번호를 붙여 JSON으로 보낸다. 라벨은 서버에서 실제 `chunk_id`로 바꾸고, 같은 근거를 여러 번 인용하면 한 번만 저장한다.
+- 지시: 자료 분량에 맞춰 개념 1~10개(PRD FR-1.5). 개수를 채우려고 개념을 만들지 않고, 학습자료를 정답 기준으로 삼아 고치거나 덧붙이지 않는다. 자료 속 명령은 따르지 않는다.
+- 구현: `services/concepts.py`의 `extract_concepts`. 분석 작업이 청크를 저장·커밋한 뒤 `generating_concepts` 단계에서 호출한다(LLM을 기다리는 동안 DB 트랜잭션을 잡지 않는다). 시작할 때 그 자료의 이전 개념을 지운다. AI 설정(키)이 없는 로컬에서는 임베딩과 개념 추출을 건너뛴다.
 - 출력 스키마(`ConceptExtractionOutput`):
 
 ```
@@ -295,7 +300,7 @@ sequenceDiagram
   participant OAI as OpenAI
 
   FE->>API: POST /projects/{pid}/materials/upload-url {filename, content_type, size}
-  API->>API: 형식(pdf/pptx)·용량 사전 검증, 동의 확인
+  API->>API: 형식(9장 file_type)·용량 사전 검증, 동의 확인
   API-->>FE: {material_id, upload_url, required_headers}  (status=pending_upload)
   FE->>GCS: PUT 원본 (Signed URL, 크기 범위 헤더)
   FE->>API: POST /materials/{id}/upload-complete
@@ -307,7 +312,8 @@ sequenceDiagram
   end
   Q->>W: POST /internal/tasks/analyze-material
   W->>GCS: 원본 다운로드
-  W->>W: [extracting] 파싱, 쪽수 검증, 텍스트 없음 판정, 청크 분할
+  W->>W: [extracting] 파싱, 그림 OCR, 쪽수 검증, 텍스트 없음 판정, 청크 분할
+  W->>OAI: (애매한 그림·이미지 파일만) 그림 글자 읽기
   W->>OAI: 임베딩 (배치)
   W->>W: chunks 저장
   W->>OAI: [generating_concepts] 개념 추출 (Structured Outputs)
@@ -325,14 +331,29 @@ sequenceDiagram
 | `ready` | 완료 | 개념 목록 확인 가능 |
 | `failed` | 실패 | `failure_code`와 재시도 버튼 |
 
-**실패 코드**: `unsupported_format`, `file_too_large`, `too_many_pages`, `no_extractable_text`(스캔 PDF, FR-1.4), `corrupted_file`, `llm_failed`, `internal_error`.
+**실패 코드**: `unsupported_format`, `file_too_large`, `too_many_pages`, `no_extractable_text`(OCR로도 글자를 얻지 못함, FR-1.4), `corrupted_file`(깨진 파일, 암호가 걸린 PDF·HWP, 배포용 HWP), `llm_failed`, `internal_error`.
 
 **설계 요점**
 - **Signed URL**: V4 PUT URL에 `Content-Type`과 `x-goog-content-length-range`(0~PRD FR-1.2 상한)를 서명에 포함시켜 GCS가 용량을 강제하게 한다. 객체 경로는 `users/{user_id}/projects/{project_id}/materials/{material_id}/original.{ext}`이다. 여러 파일을 한 번에 올리면 파일마다 이 흐름을 따로 실행한다(동시 업로드 수는 프론트 상수로 제한). 버킷은 공개 접근 차단 상태이고, 프론트 도메인의 PUT만 허용하도록 CORS를 설정한다. 원본 다운로드 URL은 발급하지 않는다(MVP에 원본 열람 기능 없음).
 - **쪽수 검증**은 파일을 열어 봐야 알 수 있으므로 워커의 `extracting` 단계에서 한다.
 - **텍스트 없음 판정**: 추출한 텍스트가 사실상 비어 있으면 `no_extractable_text`로 실패 처리한다.
+- **형식별 읽기** (PRD FR-1.1, 1.4): 모든 파서는 쪽마다 글자와 그림을 내놓고, OCR한 그림 글자를 합쳐 쪽 글자를 만든다.
+
+| 형식 | 쪽 단위 | 읽는 방법 |
+|---|---|---|
+| PDF | 실제 쪽 | PDFium으로 글자 층(띄어쓰기 보존), 없으면 pypdf. 글자 층이 없는 쪽은 300dpi로 그려 OCR, 있는 쪽은 속 그림만 OCR |
+| PPTX | 슬라이드 | 도형·표 글자, 그림은 OCR |
+| DOCX | 쪽 나누기 | 문단·표(행마다 한 줄, 칸은 ` \| `), 위·아래 첨자 보존(2¹², log₂). 그림 글자는 그 문단 바로 뒤에 넣는다 |
+| HWPX | 쪽 나누기 | ZIP 속 `section*.xml`, 첨자는 `header.xml`의 글자 모양으로 판단. 그림 글자는 문단 뒤 |
+| HWP 5 | 쪽·구역 나누기 | OLE 레코드(문단 글자, 그림 개체) 직접 해석. 암호·배포용 문서는 `corrupted_file` |
+| TXT | 쪽 넘김 문자(`\f`) | UTF-8, CP949, BOM 있는 UTF-16 |
+| PNG, JPG, HEIC | 1쪽 | 방향 보정 후 OCR. HEIC는 원본을 그대로 보관하고 분석할 때 메모리에서 푼다 |
+
+- **OCR** (PRD FR-1.4): Tesseract(kor+eng)로 먼저 읽고, 엉터리 줄(낮은 신뢰도의 비한글 줄, 기호 조각)을 줄 단위로 거른다. 결과가 애매하면(평균 신뢰도, 자신 없는 낱말, 이상한 기호, 걸러낸 글자 비율, 큰 그림에 글자가 거의 없음) AI로 다시 읽고, 업로드한 이미지 파일은 항상 AI로 읽는다. AI가 실패하면 Tesseract 결과를 쓰고, 거의 다 틀린 결과(그림 전체 신뢰도가 기준 미만)는 버린다. 작은 그림(아이콘)은 읽지 않는다. AI에는 다시 그린 PNG만 보내므로 사진의 위치 정보는 나가지 않는다. 수치는 `OCR_*` 설정(10장).
+- **구역 나누기**: HWP·HWPX·DOCX·TXT는 쪽 정보가 없어 긴 쪽을 제목 줄(`1.`, `◈`, `＃`, `제n장` 등)에서, 없으면 줄 경계에서 약 1,500~2,500자 구역으로 나누고 번호를 다시 붙인다. 구역 수는 300을 넘지 않는다. `materials.page_count`와 청크의 쪽 번호는 이 구역 번호다.
+- **반복 머리글 제거**: PDF·PPTX·이미지처럼 실제 쪽이 있는 자료는 절반 이상의 쪽에 똑같이 나오는 줄(머리글·바닥글)을 청크에서 뺀다.
 - **청크 분할**: 쪽/슬라이드 경계를 우선하고, 길면 토큰 기준(tiktoken)으로 자르며 오버랩을 둔다. 수치는 PRD 9.4를 따른다. 청크에는 쪽/슬라이드 범위를 기록해서 근거 표시에 쓴다.
-- **멱등성**: 작업 페이로드에 `attempt`(재시도 버튼을 누를 때마다 증가)를 넣는다. 워커는 DB의 `analysis_attempt`와 다르거나 이미 `ready`인 작업을 무시한다. 시작할 때 해당 자료의 기존 청크와 개념을 지우고 다시 만든다.
+- **멱등성**: 작업 페이로드에 `attempt`(재시도 버튼을 누를 때마다 증가)를 넣는다. 워커는 DB의 `analysis_attempt`와 다르거나 이미 끝난(`ready`, `failed`) 작업을 무시한다. 같은 시도가 진행 상태에서 다시 오면(인스턴스가 끊겨 재전달된 경우) 처음부터 다시 한다. 시작할 때 해당 자료의 기존 청크와 개념을 지우고 다시 만든다. `upload-complete`가 다시 와도 작업을 두 번 등록하지 않는다.
 - **재시도 경계**: 사용자 원인 실패(형식, 쪽수, 텍스트 없음)와 LLM 최종 실패는 `failed`로 기록하고 2xx를 반환해서 Cloud Tasks가 재전달하지 않게 한다. 인스턴스 장애처럼 응답 없이 끊긴 경우는 Cloud Tasks가 재전달한다.
 - **멈춘 작업**: 진행 상태인데 `updated_at`이 작업 데드라인(9.3)을 넘긴 자료는 조회할 때 `failed/internal_error`로 바꾼다. 사용자는 재시도 버튼으로 복구한다 (FR-1.3).
 - **재시도 버튼**: `POST /materials/{id}/retry`는 `failed` 상태에서만 허용한다. `analysis_attempt`를 1 올리고 보관된 원본으로 작업을 다시 등록한다.
@@ -530,7 +551,7 @@ erDiagram
 | `user_settings` | `user_id`(PK), `question_depth`(basic/deep, 기본 basic), `notifications_enabled`(기본 true), `weekly_goal_days`(1~7, 기본 3), `updated_at` | 사용자 생성 시 기본값으로 만든다 |
 | `login_events` | `user_id`, `occurred_at`, `client_summary`(예: "Chrome · macOS") | 인덱스 `(user_id, occurred_at desc)` |
 | `projects` | `user_id`, `name`, `description`, `color`(indigo/lavender/cyan), `created_at`, `updated_at` | 색은 사용자의 프로젝트 수 기준으로 순환 배정. 인덱스 `(user_id, created_at desc)` |
-| `materials` | `project_id`, `title`, `file_type`(pdf/pptx), `gcs_path`, `size_bytes`, `page_count`, `status`, `failure_code`, `analysis_attempt`, `created_at`, `updated_at` | 인덱스 `(project_id, created_at desc)` |
+| `materials` | `project_id`, `title`, `file_type`(pdf/pptx/png/jpg/txt/docx/hwp/hwpx/heic, `.jpeg`는 jpg, `.heif`는 heic), `gcs_path`, `size_bytes`, `page_count`, `status`, `failure_code`, `analysis_attempt`, `created_at`, `updated_at` | 인덱스 `(project_id, created_at desc)` |
 | `chunks` | `material_id`, `project_id`, `ordinal`, `page_start`, `page_end`, `text`, `token_count`, `embedding vector(1536)` | `project_id`는 검색 필터용 비정규화(7.4). 차원은 PRD 9.2. 인덱스 `(project_id)`, `(material_id, ordinal)` |
 | `concepts` | `material_id`, `ordinal`, `title`, `description`, `state`(not_studied/partial/misconception/understood, 기본 not_studied), `score`(0~100, null = 미학습), `last_assessed_at`, `first_assessed_at` | `state`, `score`는 7.2 규칙에 따른 비정규화 값 |
 | `concept_elements` | `concept_id`, `ordinal`, `text`, `importance`(core/supporting), `evidence_chunk_ids uuid[]` | |
@@ -557,14 +578,19 @@ erDiagram
 | `LLM_ASSESSMENT_MODEL`, `LLM_ASSESSMENT_EFFORT` | 답변 평가 모델/effort (PRD 9.2) | |
 | `LLM_EMBEDDING_MODEL` | 임베딩 모델 (PRD 9.2) | |
 | `LLM_MAX_RETRIES`, `LLM_TIMEOUT_SECONDS` | 재시도 횟수(PRD 9.4), 호출 타임아웃 | |
+| `LLM_BASE_URL` | OpenAI 호환 API 주소. 비우면 OpenAI (PRD 9.2) | |
+| `LLM_IMAGE_TEXT_MODEL`, `LLM_IMAGE_TEXT_EFFORT` | 그림 글자 읽기 모델/effort. 비우면 AI로 다시 읽지 않음 (PRD 9.2) | |
+| `OCR_*` | Tesseract 경로·언어, 읽을 그림 수·AI 호출 상한, 애매함·버림 기준, 시간 상한, 동시 실행 수 (`.env.example`에 설명) | |
 | `RAG_CHUNK_TOKENS`, `RAG_CHUNK_OVERLAP_TOKENS`, `RAG_TOP_K` | 청크/검색 수치 (PRD 9.4) | |
 | `DATABASE_URL` | asyncpg 접속 문자열 | O |
-| `GCS_BUCKET` | 원본 버킷 | |
+| `GCS_BUCKET` | 원본·프로필 이미지 버킷. 로컬에서 비우면 학습자료 원본은 GCS 에뮬레이터에 둔다 (11.2) | |
+| `GCS_EMULATOR_URL`, `GCS_EMULATOR_PUBLIC_URL` | 로컬 GCS 에뮬레이터 주소 (백엔드용 / 브라우저 업로드용). compose가 넣는다 | |
 | `GCS_SIGNER_SERVICE_ACCOUNT` | ADC 직접 서명이 불가능할 때 읽기 URL의 IAM 서명 주체 | |
 | `FIREBASE_PROJECT_ID` | ID 토큰 검증 대상 프로젝트 | |
 | `QUEUE_MODE` | `cloud_tasks` 또는 `inline` (로컬) | |
 | `TASKS_PROJECT`, `TASKS_LOCATION`, `TASKS_QUEUE`, `TASKS_INVOKER_SA` | Cloud Tasks 큐와 OIDC 서명 SA | |
 | `PUBLIC_BASE_URL` | 워커 호출 URL, OIDC audience | |
+| `ANALYSIS_DEADLINE_MINUTES` | 분석 작업 데드라인(분). 진행 상태로 이보다 오래 멈춘 자료는 실패 처리 (7.1). Cloud Tasks 디스패치 데드라인과 같게 둔다 | |
 | `CORS_ORIGINS` | 허용 오리진 목록 | |
 
 프론트엔드는 `NEXT_PUBLIC_API_BASE_URL`과 `NEXT_PUBLIC_FIREBASE_*`(웹 앱 설정)를 쓴다. Firebase 웹 설정은 클라이언트에 노출되는 식별자라서 비밀이 아니다. 보호는 Firebase 승인 도메인 설정과 백엔드 토큰 검증으로 한다.
@@ -581,14 +607,14 @@ erDiagram
 | Cloud Run `feynmi-api` | `apps/backend/Dockerfile`. Cloud SQL 커넥터로 접속. 요청 타임아웃은 분석 작업 데드라인 이상으로 설정(초기 30분). 서비스 계정 권한: Cloud SQL Client, 버킷 객체 읽기/쓰기, Cloud Tasks Enqueuer, 자기 자신에 대한 Token Creator(Signed URL 서명용), Secret Accessor |
 | Cloud Tasks `analysis` | 디스패치 데드라인 30분(HTTP 대상 상한), 최대 시도 3회. 인프라 장애에 대한 재전달용 |
 | Cloud SQL | PostgreSQL 18 + `vector` 확장. 마이그레이션은 배포 전에 `alembic upgrade head`로 실행 |
-| GCS | 균일 버킷 수준 액세스, 공개 액세스 방지, 프론트 오리진 PUT용 CORS. 원본과 프로필 이미지를 같은 버킷의 `users/{user_id}/` 아래에 둔다 |
+| GCS | 균일 버킷 수준 액세스, 공개 액세스 방지, 프론트 오리진 PUT용 CORS(요청 헤더 `Content-Type`, `x-goog-content-length-range` 허용). 원본과 프로필 이미지를 같은 버킷의 `users/{user_id}/` 아래에 둔다 |
 | Firebase | 이메일/비밀번호(이메일 인증 템플릿 한국어), 구글 공급자, 승인 도메인 |
 
 ### 11.2 로컬 개발 (FM-002)
 - `compose.yaml`: `frontend`(next dev), `backend`(uvicorn --reload), `db`(`pgvector/pgvector:pg18-trixie` 이미지). `backend`는 기동할 때 `alembic upgrade head`를 먼저 실행한다.
-- `apps/backend/Dockerfile`은 `dev`(compose, 소스 마운트)와 `prod`(Cloud Run, 기본 타깃) 두 타깃이다. 마이그레이션은 `prod` 이미지로도 실행한다(11.1).
+- `apps/backend/Dockerfile`은 `dev`(compose, 소스 마운트)와 `prod`(Cloud Run, 기본 타깃) 두 타깃이다. 마이그레이션은 `prod` 이미지로도 실행한다(11.1). 두 타깃 모두 Tesseract(`kor`, `eng`)를 설치한다. Tesseract는 한 번에 CPU 1개만 쓰고(`OMP_THREAD_LIMIT=1`), 서버 전체 동시 실행 수는 `OCR_MAX_PARALLEL`로 제한한다. 스캔 자료는 쪽을 300dpi로 그려 읽어 600MB 안팎의 메모리가 필요하다.
 - 백엔드 테스트는 별도 DB(`feynmi_test`)를 쓴다. 테스트가 스키마를 지우므로 DB 이름이 `_test`로 끝나야 한다.
-- GCS와 Firebase는 에뮬레이터 대신 **개발용 GCS 버킷과 개발용 Firebase 프로젝트**를 쓴다. GCS와 Admin SDK 호출(최초 사용자 생성 전 계정 확인, 토큰 폐기, 탈퇴)에는 ADC나 개발용 서비스 계정 자격 증명(커밋 금지)이 필요하다. 기존 사용자의 ID 토큰 서명 검증 자체에는 필요 없다. Signed URL은 서명 가능한 서비스 계정 자격 증명 또는 `GCS_SIGNER_SERVICE_ACCOUNT`와 IAM 서명 권한이 필요하다.
+- Firebase는 **개발용 Firebase 프로젝트**를 쓴다. GCS는 `.env`에 `GCS_BUCKET`이 있으면 **개발용 버킷**을 쓰고, 비어 있으면 학습자료 원본을 compose의 `gcs` 서비스(GCS 에뮬레이터, fake-gcs-server)에 둔다. 에뮬레이터 모드에서는 Signed URL 대신 에뮬레이터 업로드 주소를 주고, 서명·크기 범위를 검사하지 않으므로 백엔드가 `upload-complete`에서 실제 크기를 다시 확인한다. 개발용 버킷이 없어도 업로드부터 분석까지 같은 흐름으로 시험할 수 있다. 프로필 이미지는 여전히 버킷이 필요하다. GCS와 Admin SDK 호출(최초 사용자 생성 전 계정 확인, 토큰 폐기, 탈퇴)에는 ADC나 개발용 서비스 계정 자격 증명(커밋 금지)이 필요하다. 기존 사용자의 ID 토큰 서명 검증 자체에는 필요 없다. Signed URL은 서명 가능한 서비스 계정 자격 증명 또는 `GCS_SIGNER_SERVICE_ACCOUNT`와 IAM 서명 권한이 필요하다.
 - `QUEUE_MODE=inline`이면 큐 등록 대신 같은 프로세스에서 분석 함수를 백그라운드 태스크로 실행한다. 워커 로직은 운영과 같고 전달 경로만 다르다.
 
 ### 11.3 CI (FM-003)
