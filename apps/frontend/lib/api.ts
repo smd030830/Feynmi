@@ -43,7 +43,7 @@ export type MaterialStatus =
 export type Material = {
   id: string;
   title: string;
-  file_type: "pdf" | "pptx" | "png" | "jpg" | "txt" | "docx" | "hwp" | "hwpx";
+  file_type: "pdf" | "pptx" | "png" | "jpg" | "txt" | "docx" | "hwp" | "hwpx" | "heic";
   size_bytes: number;
   page_count: number | null;
   status: MaterialStatus;
@@ -86,7 +86,7 @@ const MESSAGES: Record<string, string> = {
   cloud_unavailable: "계정 서비스를 연결하지 못했어요. 잠시 후 다시 시도해주세요.",
   consent_required: "자료를 올리기 전에 외부 AI 전송 안내에 동의해주세요.",
   unsupported_format:
-    "지원하지 않는 형식입니다. PDF, PPTX, HWP, HWPX, DOCX, TXT, PNG, JPG만 올릴 수 있어요. (.ppt·.doc는 새 형식으로 저장해 주세요)",
+    "지원하지 않는 형식입니다. PDF, PPTX, HWP, HWPX, DOCX, TXT, PNG, JPG, HEIC만 올릴 수 있어요. (.ppt·.doc는 새 형식으로 저장해 주세요)",
   file_too_large: "파일이 너무 큽니다. 파일당 50MB까지 올릴 수 있어요.",
   empty_file: "빈 파일입니다. 내용이 있는 파일을 올려주세요.",
   original_missing: "보관된 원본 파일을 찾을 수 없어요. 자료를 다시 올려주세요.",
@@ -108,7 +108,7 @@ const IMAGE_NO_TEXT =
   "사진이나 손글씨 속 글자를 읽지 못했어요. 인쇄된 글자가 또렷하게 보이는 캡처나 스캔으로 다시 올려주세요.";
 
 export function failureMessage(code: string | null, fileType?: Material["file_type"]) {
-  if (code === "no_extractable_text" && (fileType === "png" || fileType === "jpg")) {
+  if (code === "no_extractable_text" && (fileType === "png" || fileType === "jpg" || fileType === "heic")) {
     return IMAGE_NO_TEXT;
   }
   return FAILURE_MESSAGES[code ?? ""] ?? FAILURE_MESSAGES.internal_error;

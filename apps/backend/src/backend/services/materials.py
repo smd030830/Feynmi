@@ -27,6 +27,8 @@ EXTENSIONS = {
     "docx": FileType.DOCX,
     "hwp": FileType.HWP,
     "hwpx": FileType.HWPX,
+    "heic": FileType.HEIC,
+    "heif": FileType.HEIC,
 }
 TITLE_MAX_LENGTH = 200
 

@@ -2,7 +2,7 @@
 
 결과는 `backend.rag.chunking.split_pages`의 입력이다.
 - `extract_pages`: 글자만 뽑는다 (OCR 없음, PDF/PPTX/TXT/DOCX/HWP/HWPX).
-- `read_material`: 그림 속 글자까지 OCR로 읽는다 (PNG/JPG, 스캔 PDF, 문서·슬라이드 속 그림).
+- `read_material`: 그림 속 글자까지 OCR로 읽는다 (PNG/JPG/HEIC, 스캔 PDF, 문서·슬라이드 속 그림).
 """
 
 import asyncio
@@ -63,7 +63,7 @@ def extract_pages(data: bytes, file_type: str) -> list[PageText]:
             return extract_pdf_pages(data)
         case FileType.PPTX:
             return extract_pptx_pages(data)
-        case FileType.PNG | FileType.JPG:
+        case FileType.PNG | FileType.JPG | FileType.HEIC:
             raise IngestError(FailureCode.INTERNAL_ERROR, "image files need OCR")
         case FileType.TXT | FileType.DOCX | FileType.HWP | FileType.HWPX:
             raw = _DOCUMENT_READERS[file_type](data)
@@ -106,7 +106,7 @@ def _raw_pages(data: bytes, file_type: str) -> list[RawPage]:
             return pptx_raw_pages(data)
         case FileType.TXT | FileType.DOCX | FileType.HWP | FileType.HWPX:
             return _DOCUMENT_READERS[file_type](data)
-        case FileType.PNG | FileType.JPG:
+        case FileType.PNG | FileType.JPG | FileType.HEIC:
             image = open_image_file(data)
             return [RawPage(1, "", lambda: [image], whole_image=True)]
         case _:

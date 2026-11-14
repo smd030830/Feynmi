@@ -33,6 +33,7 @@ class FileType(StrEnum):
     DOCX = "docx"
     HWP = "hwp"
     HWPX = "hwpx"
+    HEIC = "heic"  # .heif 포함 (아이폰 기본 사진 형식)
 
 
 class MaterialStatus(StrEnum):
