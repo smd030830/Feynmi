@@ -24,8 +24,20 @@ class LLMSettings(BaseSettings):
     # 애매한 OCR 결과를 다시 읽는 멀티모달 모델. 비우면 AI 보조 OCR을 쓰지 않는다
     llm_image_text_model: str | None = None
     llm_image_text_effort: str | None = None
+    # OpenAI 호환 API 주소. 비우면 OpenAI. OpenRouter는 https://openrouter.ai/api/v1
+    # (모델 ID에 공급자 접두어가 붙는다: openai/text-embedding-3-small)
+    llm_base_url: str = "https://api.openai.com/v1"
     llm_max_retries: int = Field(default=2, ge=0, le=10)
     llm_timeout_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)
+
+    @field_validator("llm_base_url", mode="before")
+    @classmethod
+    def https_base_url(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "https://api.openai.com/v1"
+        if not isinstance(value, str) or not value.strip().startswith("https://"):
+            raise ValueError("LLM_BASE_URL must be an https URL")
+        return value.strip().rstrip("/")
 
     @field_validator("openai_api_key")
     @classmethod

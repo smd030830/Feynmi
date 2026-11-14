@@ -344,3 +344,20 @@ async def test_image_text_requires_configured_model_and_known_type() -> None:
         provider = OpenAIProvider(settings(llm_image_text_model="m"), client)
         with pytest.raises(ValueError):
             await provider.read_image_text(b"x", "image/gif")
+
+
+async def test_base_url_points_to_openai_compatible_service() -> None:
+    """OpenRouter처럼 OpenAI 호환 주소로 보낼 수 있다. 끝의 / 는 지운다."""
+    urls: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1] * 1536}]})
+
+    configured = settings(llm_base_url="https://openrouter.ai/api/v1/")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        await OpenAIProvider(configured, client).embed(["text"])
+    assert urls == ["https://openrouter.ai/api/v1/embeddings"]
+    assert settings(llm_base_url="").llm_base_url == "https://api.openai.com/v1"
+    with pytest.raises(ValidationError):
+        settings(llm_base_url="http://openrouter.ai/api/v1")

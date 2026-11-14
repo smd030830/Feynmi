@@ -115,7 +115,7 @@ class OpenAIProvider:
         for attempt in range(self.settings.llm_max_retries + 1):
             try:
                 response = await self.client.post(
-                    f"https://api.openai.com/v1/{path}",
+                    f"{self.settings.llm_base_url}/{path}",
                     json=payload,
                     headers={
                         "Authorization": f"Bearer {self.settings.openai_api_key.get_secret_value()}"
