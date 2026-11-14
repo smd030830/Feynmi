@@ -185,6 +185,47 @@ def test_tesseract_reads_korean() -> None:
     assert doubt_reason(result, image.size, SETTINGS) is None
 
 
+class ScriptedEngine(TesseractEngine):
+    """Tesseract 없이 배치 모드(psm)별 결과를 정해 두고, 어떤 모드로 읽었는지 기록한다."""
+
+    def __init__(self, results: dict[str, OcrResult]) -> None:
+        super().__init__(SETTINGS)
+        self.results = results
+        self.calls: list[str] = []
+
+    def _run(self, image: Image.Image, psm: str) -> OcrResult:
+        self.calls.append(psm)
+        return self.results[psm]
+
+
+def test_empty_first_read_is_retried_as_a_block() -> None:
+    # 실제 사례: 슬라이드 속 한 줄짜리 한글 캡션을 쪽 배치 모드(psm 3)는 통째로 놓쳤다
+    engine = ScriptedEngine(
+        {"--psm 3": OcrResult("", None), "--psm 6": OcrResult("라운드 로빈", 92.0)}
+    )
+    assert engine.read(Image.new("RGB", (1400, 200), "white")).text == "라운드 로빈"
+    assert engine.calls == ["--psm 3", "--psm 6"]
+
+
+def test_clear_first_read_is_not_retried() -> None:
+    engine = ScriptedEngine({"--psm 3": OcrResult("프로세스 상태", 95.0)})
+    assert engine.read(Image.new("RGB", (1400, 200), "white")).text == "프로세스 상태"
+    assert engine.calls == ["--psm 3"]
+
+
+@needs_tesseract
+@pytest.mark.skipif(
+    not any(p.exists() for p in _KOREAN_FONTS), reason="한글 글꼴 없음 (테스트 그림을 못 만듦)"
+)
+def test_tesseract_reads_a_single_korean_caption_line() -> None:
+    font = ImageFont.truetype(str(next(p for p in _KOREAN_FONTS if p.exists())), 40)
+    image = Image.new("RGB", (1400, 200), "white")
+    caption = "라운드 로빈: 시간 할당량만큼 번갈아 실행"
+    ImageDraw.Draw(image).text((50, 50), caption, fill="black", font=font)
+    result = TesseractEngine(SETTINGS).read(image)
+    assert "라운드" in result.text and "번갈아" in result.text
+
+
 @needs_tesseract
 def test_blank_image_reads_nothing() -> None:
     result = TesseractEngine(SETTINGS).read(Image.new("RGB", (800, 600), "white"))

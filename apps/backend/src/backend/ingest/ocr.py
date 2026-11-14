@@ -87,7 +87,9 @@ class TesseractEngine:
     def read(self, image: Image.Image) -> OcrResult:
         prepared = prepare(image)
         result = self._run(prepared, _LAYOUT_PSM)
-        if result.weak_ratio > self.settings.ocr_retry_weak_ratio:
+        # 쪽 배치 모드는 한 줄짜리 한글 띠 그림(슬라이드 속 캡션 등)에서 글자를 통째로 놓친다.
+        # 아무것도 못 읽었거나 자신 없는 단어가 많으면 글 덩어리 모드로 한 번 더 읽는다.
+        if not result.text or result.weak_ratio > self.settings.ocr_retry_weak_ratio:
             block = self._run(prepared, _BLOCK_PSM)
             if (block.confidence or 0) > (result.confidence or 0):
                 result = block
