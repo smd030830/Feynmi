@@ -277,7 +277,7 @@ function MaterialRow({
         </p>
         {m.status === "failed" && (
           <p className="mt-1 text-caption text-danger">
-            {failureMessage(m.failure_code)} <span className="text-placeholder">({m.failure_code})</span>
+            {failureMessage(m.failure_code, m.file_type)} <span className="text-placeholder">({m.failure_code})</span>
           </p>
         )}
       </div>

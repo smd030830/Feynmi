@@ -102,7 +102,14 @@ const FAILURE_MESSAGES: Record<string, string> = {
   internal_error: "분석 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
 };
 
-export function failureMessage(code: string | null) {
+// 사진·손글씨는 기본 글자 인식(Tesseract)이 거의 못 읽어, 엉터리 글자 대신 실패로 처리된다
+const IMAGE_NO_TEXT =
+  "사진이나 손글씨 속 글자를 읽지 못했어요. 인쇄된 글자가 또렷하게 보이는 캡처나 스캔으로 다시 올려주세요.";
+
+export function failureMessage(code: string | null, fileType?: Material["file_type"]) {
+  if (code === "no_extractable_text" && (fileType === "png" || fileType === "jpg")) {
+    return IMAGE_NO_TEXT;
+  }
   return FAILURE_MESSAGES[code ?? ""] ?? FAILURE_MESSAGES.internal_error;
 }
 
