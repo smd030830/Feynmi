@@ -40,17 +40,13 @@ from backend.ingest.config import OCRSettings
 from backend.ingest.ocr import HybridOcr, OcrResult
 from backend.llm import LLMError, LLMProvider, LLMSettings
 from backend.main import API_PREFIX, create_app
+from backend.queue import make_queue
+from backend.queue.cloud_tasks import CloudTasksQueue
 from backend.services import analysis
 from backend.services import materials as materials_service
 from backend.services.concepts import CONCEPT_EXTRACTION_INSTRUCTIONS
-from backend.services.queue import CloudTasksQueue, make_queue
-from backend.services.storage import (
-    EmulatorStorage,
-    GcsStorage,
-    UnconfiguredStorage,
-    UploadTarget,
-    make_storage,
-)
+from backend.storage import UploadTarget, make_storage
+from backend.storage.gcs import EmulatorStorage, GcsStorage, UnconfiguredStorage
 
 pytestmark = pytest.mark.usefixtures("migrated_db")
 
@@ -375,11 +371,13 @@ async def test_unconfigured_storage_gives_a_clear_error(
 
 
 def settings_for(**values: str) -> Settings:
+    # compose가 넣는 환경변수(GCS_EMULATOR_URL, QUEUE_MODE 등)와 상관없이 정한 값만 쓴다
+    defaults = {"gcs_bucket": "", "gcs_emulator_url": "", "gcs_emulator_public_url": ""}
     return Settings(
         _env_file=None,  # pyright: ignore[reportCallIssue]
         database_url="x",
         firebase_project_id="p",
-        **values,
+        **{"queue_mode": "inline", **defaults, **values},
     )
 
 

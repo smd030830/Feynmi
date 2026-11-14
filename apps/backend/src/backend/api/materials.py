@@ -20,8 +20,8 @@ from backend.db.models import Material
 from backend.domain.enums import FailureCode, FileType, MaterialStatus
 from backend.errors import AppError
 from backend.ingest import IngestError, read_material
+from backend.queue import inline
 from backend.services import materials
-from backend.services.analysis import analyze_material
 
 logger = logging.getLogger(__name__)
 
@@ -91,15 +91,7 @@ async def _schedule(
     """분석 작업을 넘긴다. 큐 등록에 실패하면 자료를 실패로 돌려 재시도 버튼이 보이게 한다."""
     state = request.app.state
     if state.analysis_queue is None:  # QUEUE_MODE=inline
-        tasks.add_task(
-            analyze_material,
-            state.session_factory,
-            state.storage,
-            material.id,
-            material.analysis_attempt,
-            llm_settings=state.llm_settings,
-            ocr_factory=state.ocr_factory,
-        )
+        inline.schedule(tasks, state, material)
         return
     try:
         await asyncio.to_thread(

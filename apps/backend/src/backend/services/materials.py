@@ -16,7 +16,7 @@ from backend.db.models import Chunk, Material, Project, User
 from backend.domain.enums import FailureCode, FileType, MaterialStatus
 from backend.errors import AppError
 from backend.ingest import MAX_FILE_BYTES
-from backend.services.storage import CONTENT_TYPES, MaterialStorage, UploadTarget, material_key
+from backend.storage import CONTENT_TYPES, MaterialStorage, UploadTarget, material_key
 
 # 확장자 → materials.file_type. 실제 형식은 분석할 때 파일 앞 바이트로 다시 확인한다.
 EXTENSIONS = {

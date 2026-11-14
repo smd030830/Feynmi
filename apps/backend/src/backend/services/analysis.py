@@ -23,7 +23,7 @@ from backend.llm import LLMError, LLMSettings, openai_provider
 from backend.rag.chunking import split_pages
 from backend.rag.store import embed_chunks, save_chunks
 from backend.services.concepts import extract_concepts
-from backend.services.storage import MaterialStorage
+from backend.storage import MaterialStorage
 
 logger = logging.getLogger(__name__)
 

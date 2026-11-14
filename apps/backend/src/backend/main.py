@@ -11,11 +11,12 @@ from backend.config import Settings, get_settings
 from backend.db.session import make_engine, make_session_factory
 from backend.errors import register_error_handlers
 from backend.ingest import make_ocr
+from backend.queue import make_queue
+from backend.queue.cloud_tasks import make_task_token_verifier
 from backend.services.account import retry_deletions
 from backend.services.analysis import load_llm_settings
 from backend.services.cloud import AccountCloud, GoogleAccountCloud
-from backend.services.queue import make_queue, make_task_token_verifier
-from backend.services.storage import make_storage
+from backend.storage import make_storage
 
 API_PREFIX = "/api/v1"
 
