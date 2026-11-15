@@ -335,19 +335,20 @@ LLM이 "이해했는가"를 통째로 판정하지 않는다. **LLM은 요소별
 
 ### 9.2 AI 모델과 파라미터
 
-확인일: 2026-10-22, OpenAI 공식 문서 기준.
+확인일: 2026-11-15, OpenRouter 공식 모델 안내 기준. 개념 추출·평가와 임베딩은 사용자가 승인한 아래 조합을 사용한다.
 
 | 용도 | 모델 ID | 파라미터 | 비고 |
 |---|---|---|---|
-| 개념 추출 + 채점 기준 생성 (6.1①) | `gpt-5.6-luna` | `reasoning.effort = medium` | Structured Outputs |
-| 답변 평가: 요소별 판정, 피드백, 추가 질문 (6.1②) | `gpt-5.6-luna` | `reasoning.effort = medium` | Structured Outputs, 1회 호출 |
+| 개념 추출 + 채점 기준 생성 (6.1①) | `gpt-6-luna` | `reasoning.effort = medium` | Structured Outputs |
+| 답변 평가: 요소별 판정, 피드백, 추가 질문 (6.1②) | `gpt-6-luna` | `reasoning.effort = medium` | Structured Outputs, 1회 호출 |
 | 임베딩 (FR-5.1) | `text-embedding-3-small` | 1536차원 | pgvector `vector(1536)`, HNSW 인덱스 가능 |
 | 그림 글자 읽기 (FR-1.4) | `gpt-5.6-luna` | `reasoning.effort = low` | Structured Outputs, 그림 한 장당 1회. 자료당 최대 20회 |
 
-- 모델 ID와 effort는 작업별로 환경변수로 관리하여 코드 수정 없이 교체한다 (예: 판정 품질이 부족하면 `gpt-5.6-terra`로 상향).
-- OpenRouter를 거칠 때는 주소를 `https://openrouter.ai/api/v1`로 두고 모델 ID 앞에 `openai/`를 붙인다(예: `openai/gpt-5.6-luna`). 주소를 비우면 OpenAI API로 보낸다.
-- `gpt-5.6-luna`는 Responses API와 Chat Completions를 지원하고 Embeddings 엔드포인트는 지원하지 않는다. 그래서 임베딩은 별도 모델을 쓴다.
-- 참고 가격(1M 토큰당): `gpt-5.6-luna` 입력 $0.20 / 출력 $1.20. 컨텍스트 1,050,000 토큰.
+- 모델 ID와 effort는 작업별로 환경변수로 관리하여 코드 수정 없이 교체한다 (예: 판정 품질 비교가 필요하면 `gpt-6.1-terra`를 검토).
+- OpenRouter를 거칠 때는 주소를 `https://openrouter.ai/api/v1`로 두고 모델 ID 앞에 `openai/`를 붙인다(예: `openai/gpt-6-luna`). 주소를 비우면 OpenAI API로 보낸다.
+- 개념 추출·평가는 Responses API, 임베딩은 별도 모델의 Embeddings API를 사용한다.
+- 참고 가격(1M 토큰당): `gpt-6-luna` 입력 $0.10 / 출력 $0.50, `text-embedding-3-small` 입력 $0.02. 가격은 변동될 수 있다. [생성 모델](https://openrouter.ai/openai/gpt-6-luna), [임베딩 모델](https://openrouter.ai/openai/text-embedding-3-small).
+- 현재 로컬 연결은 OpenRouter를 사용한다. 개념 추출·평가 모델 ID는 `openai/gpt-6-luna`, 임베딩은 `openai/text-embedding-3-small`이며, AI 보조 OCR은 아직 활성화하지 않는다. 실제 API 호출 테스트는 사용자 승인 전 수행하지 않고 모의 응답으로 검증한다.
 
 **RAG 적용 메모**: 자료 한두 개 분량은 긴 컨텍스트로도 처리 가능하지만, 자료가 누적되고 근거 검색 정확도를 높이기 위해 RAG를 유지한다. 구현 초기에 "RAG 유무" 비교 실험으로 효과를 검증할 것을 권장한다.
 
@@ -402,5 +403,7 @@ User(Firebase UID 연결, 닉네임, 프로필 이미지 경로, 외부 AI 전�
 - 2026-11-15: OpenRouter 키로 OpenAI 모델을 호출할 수 있도록 AI 호출 주소를 환경변수로 정한다 (FR-5.3, 9.2).
 - 2026-11-15: 흘림 손글씨 사진은 AI 모델을 바꿔도 없는 글을 지어내는 경우가 있어 알려진 한계로 둔다. 자동 모델 전환은 만들지 않고, 모델 선택은 이후 사용자 설정으로 다룬다 (5.2).
 - 2026-11-15: 로컬 개발에서 개발용 GCS 버킷이 없으면 학습자료 원본을 GCS 에뮬레이터에 보관한다. 업로드(Signed URL)·분석 작업(Cloud Tasks) 흐름은 운영과 같게 두고, 누구나 클라우드 설정 없이 같은 방법으로 시험할 수 있게 하기 위함이다 (architecture.md 11.2).
+
+- 2026-11-15: 사용자가 비용 중심 추천 조합을 승인해 OpenRouter에서 개념 추출·평가에 GPT-6 Luna(medium), 임베딩에 text-embedding-3-small(1536차원)을 사용하도록 로컬 설정했다. 키는 Git 제외 파일에만 보관하고 실제 AI 호출 없이 모의 테스트로 검증한다.
 
 ---
