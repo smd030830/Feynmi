@@ -228,9 +228,10 @@ export function MaterialsPanel({
       {pendingFiles && (
         <Modal title="외부 AI 전송 안내" onClose={() => setPendingFiles(null)}>
           <p className="text-body text-muted">
-            자료가 외부 AI API(OpenAI)로 전송됩니다. 개념 분석과 질문 생성에만 사용되며, 본인만 볼 수
-            있어요.
+            자료 내용과 학습 답변이 외부 AI API(OpenAI)로 전송됩니다. 개념 추출, 그림 속 글자 읽기,
+            답변 평가와 질문·피드백 생성에 사용됩니다. 설정에 따라 OpenRouter 중계를 거칠 수 있어요.
           </p>
+          <p className="mt-3 text-caption text-subtle">불필요한 개인정보는 자료에서 지워 주세요. 자세한 처리 내용은 <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-strong underline">개인정보 처리방침 (새 창)</a>에서 확인할 수 있어요.</p>
           <div className="mt-6 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setPendingFiles(null)}>
               취소
