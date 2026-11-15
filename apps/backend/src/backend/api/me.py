@@ -14,10 +14,11 @@ from backend.api.deps import (
     require_profile,
     require_verified_email,
 )
-from backend.db.models import Assessment, Concept, Material, Project, Session, UserSettings
-from backend.domain.stats import LearningStats, learning_stats
+from backend.db.models import Assessment, Session, UserSettings
+from backend.domain.stats import LearningStats
 from backend.services.account import active_user
 from backend.services.cloud import AccountCloud
+from backend.services.stats import load_stats
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -34,22 +35,7 @@ async def get_stats(
     current: Annotated[CurrentUser, Depends(require_profile)],
     db: DbSession,
 ) -> LearningStats:
-    timestamps = await db.scalars(
-        select(Assessment.created_at)
-        .join(Session, Session.id == Assessment.session_id)
-        .where(Session.user_id == current.user.id)
-    )
-    concepts = await db.execute(
-        select(Concept.score, Concept.first_assessed_at)
-        .join(Material, Material.id == Concept.material_id)
-        .join(Project, Project.id == Material.project_id)
-        .where(Project.user_id == current.user.id)
-    )
-    return learning_stats(
-        timestamps,
-        [(row.score, row.first_assessed_at) for row in concepts],
-        today=datetime.now(UTC).astimezone(KST).date(),
-    )
+    return await load_stats(db, current.user.id)
 
 
 @router.get("/summary")

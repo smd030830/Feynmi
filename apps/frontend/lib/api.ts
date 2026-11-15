@@ -30,6 +30,8 @@ export type Project = {
   state_counts: StateCounts;
   material_count: number;
   created_at: string;
+  last_concept_title?: string | null;
+  last_studied_at?: string | null;
 };
 
 export type MaterialStatus =
@@ -248,6 +250,15 @@ export type LearningStats = {
 };
 export function getLearningStats() {
   return apiFetch<LearningStats>("/me/stats");
+}
+export type HomeData = {
+  stats: LearningStats;
+  projects: Project[];
+  next_color: ProjectColor;
+  recommendation: LearningSession["recommendation"];
+};
+export function getHome() {
+  return apiFetch<HomeData>("/home");
 }
 export function getWeeklySummary() {
   return apiFetch<WeeklySummary>("/me/summary");

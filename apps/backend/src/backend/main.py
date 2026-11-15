@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import account, internal, materials, me, projects, records, sessions
+from backend.api import account, home, internal, materials, me, projects, records, sessions
 from backend.auth.firebase import TokenVerifier, make_token_verifier
 from backend.config import Settings, get_settings
 from backend.db.session import make_engine, make_session_factory
@@ -75,6 +75,7 @@ def create_app(
 
     api = APIRouter(prefix=API_PREFIX)
     api.include_router(me.router)
+    api.include_router(home.router)
     api.include_router(projects.router)
     api.include_router(account.router)
     api.include_router(sessions.router)

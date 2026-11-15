@@ -1,32 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Icon, type IconName } from "@/components/icon";
-import { getLearningStats, apiErrorMessage, type LearningStats } from "@/lib/api";
+import { type LearningStats } from "@/lib/api";
 
-export function LearningOverview() {
-  const [stats, setStats] = useState<LearningStats>();
-  const [error, setError] = useState("");
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    getLearningStats().then((value) => {
-      if (active) { setStats(value); setError(""); }
-    }).catch((reason: unknown) => { if (active) setError(apiErrorMessage(reason)); });
-    return () => { active = false; };
-  }, [attempt]);
-
+export function LearningOverview({ stats }: { stats: LearningStats }) {
   const cards: { icon: IconName; label: string; value: number | string; unit: string; detail: string; tone: string }[] = [
     { icon: "target", label: "전체 이해도", value: stats?.overall_score ?? "-", unit: stats?.overall_score != null ? "%" : "", detail: "학습한 모든 개념 기준", tone: "bg-[#f0fdf4] text-[#16a34a]" },
     { icon: "book", label: "학습 개념", value: stats?.learned_concepts ?? "-", unit: "개", detail: stats ? `이번 주 새로 학습한 개념 ${stats.new_concepts_this_week}개` : "불러오는 중", tone: "bg-[#eef2ff] text-[#6366f1]" },
     { icon: "clock", label: "학습 일수", value: stats?.study_days_last_30 ?? "-", unit: "일", detail: stats ? `최근 30일 · ${stats.consecutive_study_days}일 연속 학습` : "불러오는 중", tone: "bg-[#f5f3ff] text-[#8b5cf6]" },
   ];
   return (
-    <section aria-labelledby="overview-title" aria-busy={!stats && !error}>
+    <section aria-labelledby="overview-title">
       <h2 id="overview-title" className="mb-4 text-heading font-bold text-text">학습 개요</h2>
-      {error ? <div role="alert" className="text-caption text-subtle">
-        {error} <button type="button" className="text-primary" onClick={() => { setError(""); setAttempt(attempt + 1); }}>다시 시도</button>
-      </div> : <div className="grid grid-cols-3 gap-3.5 max-[600px]:grid-cols-1">
+      <div className="grid grid-cols-3 gap-3.5 max-[600px]:grid-cols-1">
         {cards.map((card) => <div key={card.label} className="flex items-center gap-3.5 rounded-card border border-line bg-surface p-5">
           <span className={`flex size-[38px] shrink-0 items-center justify-center rounded-[10px] ${card.tone}`}><Icon name={card.icon} size={20} /></span>
           <div>
@@ -35,7 +21,7 @@ export function LearningOverview() {
             <p className="text-caption text-subtle">{card.detail}</p>
           </div>
         </div>)}
-      </div>}
+      </div>
     </section>
   );
 }

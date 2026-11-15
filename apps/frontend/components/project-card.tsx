@@ -13,8 +13,7 @@ export function ProjectCard({ project }: { project: Project }) {
     <Link href={`/projects/${project.id}`} className={`${cardBase} border-line`}>
       <ProjectTile name={project.name} color={project.color} />
       <p className="mt-4 truncate text-subheading font-bold text-text">{project.name}</p>
-      {/* 최근 학습 개념은 세션(FM-030) 이후 채운다 */}
-      <p className="truncate text-caption text-subtle">아직 학습한 개념이 없어요</p>
+      <p className="truncate text-caption text-subtle">{project.last_concept_title ? `최근 학습 · ${project.last_concept_title}` : "아직 학습한 개념이 없어요"}</p>
 
       <div className="mt-auto pt-5">
         <div className="flex items-baseline justify-between">

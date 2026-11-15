@@ -46,6 +46,8 @@ class ProjectResponse(BaseModel):
     state_counts: StateCounts
     material_count: int
     created_at: datetime
+    last_concept_title: str | None = None
+    last_studied_at: datetime | None = None
 
 
 class ProjectListResponse(BaseModel):
@@ -70,10 +72,12 @@ def _project_response(summary: ProjectSummary) -> ProjectResponse:
         ),
         material_count=summary.material_count,
         created_at=project.created_at,
+        last_concept_title=summary.last_concept_title,
+        last_studied_at=summary.last_studied_at,
     )
 
 
-@router.get("")
+@router.get("", response_model_exclude_defaults=True)
 async def list_projects(current: ProfileUser, db: DbSession) -> ProjectListResponse:
     summaries = await projects.list_projects(db, current.user.id)
     return ProjectListResponse(
@@ -82,7 +86,7 @@ async def list_projects(current: ProfileUser, db: DbSession) -> ProjectListRespo
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model_exclude_defaults=True)
 async def create_project(
     body: ProjectCreate, current: ProfileUser, db: DbSession
 ) -> ProjectResponse:
@@ -92,7 +96,7 @@ async def create_project(
     return _project_response(summary)
 
 
-@router.get("/{project_id}")
+@router.get("/{project_id}", response_model_exclude_defaults=True)
 async def get_project(
     project_id: uuid.UUID, current: ProfileUser, db: DbSession
 ) -> ProjectResponse:
