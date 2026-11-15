@@ -1,3 +1,4 @@
+import type { Schemas } from "@feynmi/api-types";
 import { getFirebaseAuth } from "@/lib/firebase";
 
 // 백엔드 API 호출 (architecture.md 4.2, 8). 호출 직전에 ID 토큰을 받아 Bearer로 붙인다.
@@ -12,55 +13,18 @@ export type Me = {
   avatar_url: string | null;
 };
 
-export type ProjectColor = "indigo" | "lavender" | "cyan";
+export type ProjectColor = Schemas["ProjectColor"];
 
-export type StateCounts = {
-  understood: number;
-  partial: number;
-  misconception: number;
-  not_studied: number;
-};
+export type StateCounts = Schemas["StateCounts"];
 
-export type Project = {
-  id: string;
-  name: string;
-  description: string | null;
-  color: ProjectColor;
-  score: number | null; // 프로젝트 이해도. null이면 학습한 개념이 없음
-  state_counts: StateCounts;
-  material_count: number;
-  created_at: string;
-  last_concept_title?: string | null;
-  last_studied_at?: string | null;
-};
+export type Project = Schemas["ProjectResponse"];
 
-export type MaterialStatus =
-  | "pending_upload"
-  | "queued"
-  | "extracting"
-  | "generating_concepts"
-  | "ready"
-  | "failed";
+export type MaterialStatus = Schemas["MaterialStatus"];
 
-export type Material = {
-  id: string;
-  title: string;
-  file_type: "pdf" | "pptx" | "png" | "jpg" | "txt" | "docx" | "hwp" | "hwpx" | "heic";
-  size_bytes: number;
-  page_count: number | null;
-  status: MaterialStatus;
-  failure_code: string | null;
-  chunk_count: number; // DB에 임베딩까지 저장된 조각 수
-  concept_count: number;
-  element_count: number;
-  created_at: string;
-};
+export type Material = Schemas["MaterialResponse"];
 
 
-export type ProjectList = {
-  items: Project[];
-  next_color: ProjectColor;
-};
+export type ProjectList = Schemas["ProjectListResponse"];
 
 // code는 architecture.md 8.2의 오류 코드. 네트워크 실패는 "network_error"로 둔다.
 export class ApiError extends Error {
@@ -243,14 +207,8 @@ export function cleanupSessions() {
   return apiFetch<void>("/sessions/cleanup", { method: "POST" });
 }
 
-export type WeeklySummary = { weekly_goal_days: number; study_days: boolean[] };
-export type LearningStats = {
-  overall_score: number | null;
-  learned_concepts: number;
-  new_concepts_this_week: number;
-  study_days_last_30: number;
-  consecutive_study_days: number;
-};
+export type WeeklySummary = Schemas["WeeklySummary"];
+export type LearningStats = Schemas["LearningStats"];
 export function getLearningStats() {
   return apiFetch<LearningStats>("/me/stats");
 }
@@ -286,10 +244,8 @@ export function abortSessionOnExit(id: string, token: string) {
   });
 }
 
-export type LearningSettings = {
-  question_depth: "basic" | "deep"; notifications_enabled: boolean; weekly_goal_days: number;
-};
-export type LoginEvent = { id: string; occurred_at: string; client_summary: string };
+export type LearningSettings = Schemas["SettingsResponse"];
+export type LoginEvent = Schemas["LoginEventResponse"];
 export function getLearningSettings() { return apiFetch<LearningSettings>("/me/settings"); }
 export function saveLearningSettings(settings: Partial<LearningSettings>) {
   return apiFetch<LearningSettings>("/me/settings", { method: "PATCH", body: JSON.stringify(settings) });
@@ -314,12 +270,7 @@ export function listMaterials(projectId: string) {
   return apiFetch<{ items: Material[] }>(`/projects/${encodeURIComponent(projectId)}/materials`);
 }
 
-type UploadUrl = {
-  material_id: string;
-  upload_url: string;
-  required_headers: Record<string, string>; // 서명에 포함된 헤더. PUT에 그대로 붙인다
-  material: Material;
-};
+type UploadUrl = Schemas["UploadUrlResponse"];
 
 // 업로드 세 단계 (architecture 7.1): 주소 받기 → 저장소에 직접 PUT → 완료 알림(분석 시작)
 export async function uploadMaterial(projectId: string, file: File) {

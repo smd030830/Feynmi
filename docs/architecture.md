@@ -525,7 +525,8 @@ sequenceDiagram
 사용자에게 보여주는 한국어 문구는 프론트엔드가 `code`로 정한다. `message`는 디버깅용이다.
 
 ### 8.3 타입 공유
-- FastAPI가 만드는 `openapi.json`에서 `openapi-typescript`로 `packages/api-types`를 생성한다.
+- FastAPI OpenAPI 스키마에서 기존 Python 환경의 `scripts/generate_api_types.py`로 `packages/api-types`를 생성한다. 별도 서버나 외부 연결 없이 실행하며 새 의존성을 추가하지 않는다.
+- 프론트엔드는 `@feynmi/api-types`의 `Schemas`를 타입 전용으로 참조한다. CI에서 생성 결과의 최신 여부를 검사한다. 상세 응답 모델이 없는 경로는 `unknown` 기반으로 생성하며 수동 상세 타입은 응답 모델을 정의한 뒤 전환한다.
 - CI는 생성 결과가 커밋된 파일과 같은지 확인한다(차이가 있으면 실패).
 
 ---
