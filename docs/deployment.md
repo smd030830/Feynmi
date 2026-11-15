@@ -28,7 +28,7 @@ PRD 9.1과 architecture 11장의 Vercel·Cloud Run·Cloud SQL·Cloud Storage·Cl
 - 장기 서비스 계정 키 대신 GitHub OIDC를 사용한다. Google의 신뢰 조건은 저장소 ID·소유자 ID·main ref·배포 워크플로 경로를 모두 제한한다. GitHub 저장소 변수 `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`는 설정 완료했다.
 - 배포 계정에는 전용 프로젝트의 Cloud Run Developer, Service Usage Consumer, 이미지 저장소 Writer, 기존 런타임·마이그레이션 계정의 actAs만 부여한다. AI 키·DB URL은 기존 Secret Manager 참조를 유지한다.
 - 순서는 이미지 게시 → 기존 마이그레이션 작업 이미지 변경 → 마이그레이션 성공 대기 → 서비스 이미지 변경 → `/health` 검증이다. 서버 용량·환경변수·비밀 설정은 덮어쓰지 않는다. 임시 Google 인증 파일은 Git과 Vercel 업로드에서 제외한다.
-- 현재 원격 CI는 기존 `tests/test_materials_api.py`의 AI 미설정 기대값 8개가 실제 동작과 달라 실패 중이다. 사용자가 기존 테스트 수정도 커밋에서 제외하도록 재확인했으므로 이를 변경하거나 실패 검사를 우회하지 않았다. 이 상태에서는 백엔드 자동 배포가 차단된다. 워크플로 파일을 main에 푸시하고 CI 실패를 해결해야 실제 자동 배포가 실행된다.
+- 이전 원격 CI를 막던 자료 분석·시작 질문의 오래된 테스트 기대값 9개는 사용자가 기존 기대값 수정의 커밋을 예외 승인해 현재 규칙에 맞췄다. 새 기능용 테스트 파일은 계속 Git에서 제외한다. 실패 검사를 건너뛰지 않으며 CI 전체 성공 후에만 백엔드를 자동 배포한다.
 - 검증: 실제 Bash 배포 스크립트의 성공·마이그레이션 실패·상태 확인 실패·오래된 SHA 차단 등 8개 오프라인 테스트를 통과했다. 실제 GitHub OIDC 배포 실행은 아직 검증되지 않았다.
 
 ## 배포 준비 절차

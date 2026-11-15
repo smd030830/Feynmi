@@ -243,7 +243,9 @@ async def test_four_assessments_privacy_cumulative_context_and_result(setup: Set
     assert len(listing.json()["items"]) == 2
     sid = await start(setup)
     view = (await setup.client.get(f"{URL}/sessions/{sid}")).json()
-    assert view["messages"][0]["text"] == "먼저 프로세스이(가) 무엇인지 나의 말로 설명해볼까요?"
+    assert "강의.pdf" in view["messages"][0]["text"]
+    assert "1쪽" in view["messages"][0]["text"]
+    assert "프로세스" in view["messages"][0]["text"]
     assert not setup.provider.inputs
     for attempt in range(4):
         response = await answer(setup, sid, f"설명 {attempt}")
