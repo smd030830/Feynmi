@@ -2,6 +2,15 @@
 
 PRD 9.1과 architecture 11장의 Vercel·Cloud Run·Cloud SQL·Cloud Storage·Cloud Tasks 구성을 따른다. 이 문서는 배포 실행 또는 공개 환경 검증 완료를 뜻하지 않는다.
 
+## 이번 배포의 비용 조건
+
+- 프론트엔드는 Vercel Hobby 플랜만 사용하며 유료 플랜으로 전환하지 않는다.
+- Google Cloud는 유료 전환하지 않은 무료체험 계정의 남은 크레딧과 기간이 확인될 때만 배포한다. 일반 유료 결제 계정의 무료 사용량만으로 비용 0원을 보장하지 않는다.
+- CLI의 결제 계정 `open=true`나 `My Billing Account`라는 이름은 무료체험 증거가 아니다. 계정 종류·잔액·기한이 확인되기 전에는 결제를 연결하거나 사용량이 발생하는 자원을 생성하지 않는다.
+- 기존 프로젝트를 변경하지 않고 Feynmi 전용 프로젝트를 사용한다. 생성된 프로젝트·연결 상태는 Git 제외 로컬 기록으로 관리한다.
+- Vercel 업로드는 `.vercelignore`로 개인 환경변수·인증·로컬 테스트·자료를 제외한다. 프로젝트 Root Directory는 `apps/frontend`, 공유 타입을 위해 루트 외 소스 포함을 켠다.
+- 배포 검증 중 OpenRouter 유료 AI 호출은 수행하지 않는다. 사용자가 배포 후 직접 실행하는 AI 분석·평가는 별도의 API 비용이 발생할 수 있다.
+
 ## 배포 전
 
 1. GCP 프로젝트·리전·Cloud Run 서비스·이미지 저장소·Cloud SQL 연결 이름과 Vercel 프로젝트를 확정한다.

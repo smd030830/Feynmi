@@ -1,0 +1,21 @@
+# Upload frontend source and shared types, excluding local state and credentials.
+.git
+.idea
+.vscode
+.run
+.codex
+.claude
+.omx
+.local-tests
+.vercel
+**/.env
+**/.env.*
+**/node_modules
+**/.next
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.log
+apps/backend
+docs
