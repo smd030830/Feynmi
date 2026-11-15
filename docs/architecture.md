@@ -421,6 +421,7 @@ sequenceDiagram
 - `GET /home` 한 번으로 학습 개요, 알림, 다음 학습 추천, 프로젝트 카드, 취약 개념을 모두 반환한다. 조회 전에 7.3의 지연 정리를 수행한다.
 - 프로젝트 카드의 상태 분포와 프로젝트 이해도는 `concepts`를 프로젝트별로 `GROUP BY`해서 계산한다.
 - 취약 개념 정렬과 추천은 `domain/ranking.py`가 PRD FR-4.3, FR-3.4대로 계산한다. 결과 화면 추천은 방금 학습한 개념을 뺀다.
+- `services/sessions.py`의 `weak_concepts`가 본인의 분석 완료 자료에서 이해 상태가 아닌 개념을 모두 정렬한다. 홈의 `weak_concepts`는 이 전체 목록이고 `recommendation`은 첫 항목이다. 세션 결과와 프로젝트 추천도 같은 함수를 사용하며, 채점 기준 설명은 목록 응답에 넣지 않는다.
 - `GET /home`의 통계와 `GET /me/stats`는 같은 `services/stats.py` 조회·`domain/stats.py` 계산을 사용한다. 홈은 통계 재조회를 하지 않고 통합 응답으로 3개 카드를 그린다.
 - 프로젝트 응답은 최근 답변이 있는 세션의 개념명(`last_concept_title`)과 시작 시각(`last_studied_at`)을 제공한다. 기존 프로젝트 API는 최근 학습이 없을 때 이 추가 필드를 생략한다. 홈과 목록은 최근 학습순, 학습하지 않은 프로젝트는 생성 최신순으로 표시한다. 최근 학습은 프로젝트별 윈도 함수로 한 번에 조회한다.
 - 학습 통계는 `domain/stats.py`가 계산한다. 입력은 사용자의 판정 시각 목록(`assessments.created_at`을 `sessions.user_id`로 거른 것)과 `concepts.first_assessed_at`이다. 날짜는 `Asia/Seoul` 기준, 한 주는 월~일이다. 판정 시각만 쓰므로 별도 통계 테이블을 두지 않는다.

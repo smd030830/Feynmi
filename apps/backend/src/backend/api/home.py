@@ -18,6 +18,7 @@ class HomeResponse(BaseModel):
     projects: list[ProjectResponse]
     next_color: ProjectColor
     recommendation: dict[str, Any] | None
+    weak_concepts: list[dict[str, Any]]
 
 
 @router.get("/home")
@@ -27,9 +28,11 @@ async def get_home(
     # 조회 전에 누락된 이탈을 처리하고, 유효한 평가 잠금은 기존 규칙으로 보호한다.
     await sessions.cleanup_on_home(db, current.user.id)
     summaries = await projects.list_projects(db, current.user.id)
+    weak = await sessions.weak_concepts(db, current.user.id)
     return HomeResponse(
         stats=await load_stats(db, current.user.id),
         projects=[_project_response(summary) for summary in summaries],
         next_color=await projects.next_color(db, current.user.id),
-        recommendation=await sessions._recommendation(db, current.user.id),
+        recommendation=weak[0] if weak else None,
+        weak_concepts=weak,
     )

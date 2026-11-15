@@ -249,13 +249,13 @@ async def abort_session(
     return await session_view(db, user_id, session_id)
 
 
-async def _recommendation(
+async def weak_concepts(
     db: AsyncSession,
     user_id: uuid.UUID,
     exclude_id: uuid.UUID | None = None,
     *,
     project_id: uuid.UUID | None = None,
-) -> dict[str, Any] | None:
+) -> list[dict[str, Any]]:
     rows = list(
         await db.execute(
             select(Concept, Material, Project)
@@ -270,10 +270,7 @@ async def _recommendation(
             )
         )
     )
-    if not rows:
-        return None
-    c, _, p = min(
-        rows,
+    rows.sort(
         key=lambda row: weakness_key(
             RankedConcept(
                 row[0].id,
@@ -289,15 +286,29 @@ async def _recommendation(
         ConceptState.PARTIAL: "빠진 부분을 보완해 이해를 완성해 보세요.",
         ConceptState.NOT_STUDIED: "아직 학습하지 않은 개념을 설명해 보세요.",
     }
-    return {
-        "concept_id": c.id,
-        "concept_title": c.title,
-        "project_id": p.id,
-        "project_name": p.name,
-        "state": c.state,
-        "score": c.score,
-        "reason": reasons[ConceptState(c.state)],
-    }
+    return [
+        {
+            "concept_id": c.id,
+            "concept_title": c.title,
+            "project_id": p.id,
+            "project_name": p.name,
+            "state": c.state,
+            "score": c.score,
+            "reason": reasons[ConceptState(c.state)],
+        }
+        for c, _, p in rows
+    ]
+
+
+async def _recommendation(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    exclude_id: uuid.UUID | None = None,
+    *,
+    project_id: uuid.UUID | None = None,
+) -> dict[str, Any] | None:
+    items = await weak_concepts(db, user_id, exclude_id, project_id=project_id)
+    return items[0] if items else None
 
 
 async def session_view(

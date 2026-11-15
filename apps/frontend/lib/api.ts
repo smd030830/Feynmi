@@ -256,6 +256,7 @@ export type HomeData = {
   projects: Project[];
   next_color: ProjectColor;
   recommendation: LearningSession["recommendation"];
+  weak_concepts: NonNullable<LearningSession["recommendation"]>[];
 };
 export function getHome() {
   return apiFetch<HomeData>("/home");

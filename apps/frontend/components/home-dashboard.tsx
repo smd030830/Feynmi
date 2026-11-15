@@ -127,6 +127,33 @@ export function HomeDashboard() {
               <NewProjectCard onClick={() => setCreating(true)} />
             </div>
           </section>
+          <section aria-labelledby="weak-title">
+            <h2 id="weak-title" className="mb-4 text-heading font-bold text-text">취약 개념</h2>
+            {home.weak_concepts.length === 0 ? (
+              <div className="rounded-card border border-line bg-surface p-8 text-center">
+                <p className="text-subheading font-bold text-text">
+                  {home.projects.some((project) => Object.values(project.state_counts).some((count) => count > 0)) ? "모든 개념을 이해했어요" : "아직 학습할 개념이 없어요"}
+                </p>
+                <p className="mt-2 text-caption text-subtle">새로운 학습자료를 올려 다음 개념을 만나보세요.</p>
+              </div>
+            ) : (
+              <ul className="overflow-hidden rounded-card border border-line bg-surface divide-y divide-line">
+                {home.weak_concepts.map((concept) => (
+                  <li key={concept.concept_id}>
+                    <button type="button" disabled={starting} onClick={() => void begin(concept.concept_id)} className="flex w-full items-center gap-5 p-5 text-left transition hover:bg-primary-soft disabled:opacity-60">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-subheading font-bold text-text">{concept.concept_title}</span>
+                        <span className="mt-1 block truncate text-caption text-subtle">{concept.project_name}</span>
+                      </span>
+                      <StateBadge state={concept.state} />
+                      <span className="min-w-12 text-right text-body font-bold text-muted">{concept.score === null ? "-" : `${concept.score}%`}</span>
+                      <Icon name="chevron" size={18} className="shrink-0 text-placeholder" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </>
       )}
       {creating && <NewProjectModal nextColor={home.next_color} onClose={() => setCreating(false)} />}
