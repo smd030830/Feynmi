@@ -28,6 +28,7 @@ class ExtractedMisconception(OutputModel):
 class ExtractedConcept(OutputModel):
     title: Text
     description: Text
+    opening_question: Text | None = None
     elements: list[ExtractedElement] = Field(min_length=3, max_length=5)
     misconceptions: list[ExtractedMisconception] = Field(max_length=2)
 

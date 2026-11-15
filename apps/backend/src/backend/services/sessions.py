@@ -70,7 +70,8 @@ ASSESSMENT_INSTRUCTIONS = """당신은 한국어 파인만 학습 코치다. 입
 구별한다. 자료 밖의 진술은 오개념으로 처리하지 말고 unverified_statements에 '자료에서
 확인되지 않음'으로 표시한다. 각 요소를 정확히 한 번 평가하고 실제 답변의 문장만 인용한다.
 근거는 제공된 청크 label만 인용한다. 상태와 점수는 계산하지 않는다. feedback.correct는 맞은
-부분, missing_hint는 정답을 드러내지 않는 힌트, missing은 빠진 부분의 상세, incorrect는 잘못된
+부분, missing_hint는 부족하거나 틀린 이유를 알려주는 짧은 풀이와 힌트,
+missing은 빠진 부분의 상세, incorrect는 잘못된
 부분, supplement는 보완 설명이다. 추가 질문은 누락/모순인 핵심 요소를 우선하고 정답을
 알려주지 않는다. 이해하지 못한 핵심 요소가 있으면 followup_question을 반드시 작성한다.
 question_depth는 추가 질문의 문체와 깊이에만 적용하고 판정의 기준에는 적용하지 않는다.
@@ -84,7 +85,17 @@ true다. false면 평가를 진행하지 말고 elements와 모든 피드백 목
 followup_question은 null로 반환한다. 자료에 없는 주장을 하는 것과 무관한 답변은 구별한다.
 관련 답변은 누적 설명 전체로 평가한다. 새 답변이 이전 설명을 명시적으로 정정하거나 자료와
 모순되지 않는 한, 이전에 설명한 내용을 이번 답변에서 반복하지 않았다는 이유로 누락 처리하지
-않는다. 이전 판정은 참고 자료이며 최종 판정은 실제 누적 답변과 자료 근거에 따른다."""
+않는다. 이전 판정은 참고 자료이며 최종 판정은 실제 누적 답변과 자료 근거에 따른다.
+관련 답변에 미충족 핵심 요소가 있으면 missing_hint에 반드시 자료 근거를 바탕으로 틀리거나
+부족한 이유를 1~2문장으로 쉽게 풀어 쓴다. 질문만 반복하거나 '다시 생각해보세요'로 끝내지
+않는다. 이어지는 followup_question은 제공된 자료의 실제 사례·조건·수치·절차 중 하나를
+바탕으로 그 부족한 부분을 자기 말로 적용해 설명하도록 묻는다. 자료에 없는 예시·조건·수치를
+만들거나 다른 프로젝트의 내용을 끌어오지 않는다. 이미 답한 질문을 그대로 반복하지 않는다.
+supplement는 종료 후 제공할 상세 풀이로, 부족하거나 틀린 각 핵심 요소에 대해 학습자의 설명과
+자료의 근거가 어떻게 다른지, 올바른 이해 과정이 무엇인지 차례대로 설명한다.
+짧은 풀이, 상세 풀이, summary_points에는 partial/missing/contradicted 요소만 다룬다.
+이미 met인 요소를 칭찬하거나 다시 풀이하지 않는다. 모든 요소가 met이면 missing_hint,
+missing, incorrect, summary_points는 빈 배열, supplement는 빈 문자열로 반환한다."""
 
 
 async def _lock_user(db: AsyncSession, user_id: uuid.UUID) -> User:
@@ -202,7 +213,7 @@ async def start_session(
     if material.status != MaterialStatus.READY:
         raise AppError(409, "invalid_state", "material is not ready")
     core = await db.scalar(
-        select(ConceptElement.id)
+        select(ConceptElement)
         .where(
             ConceptElement.concept_id == concept_id, ConceptElement.importance == Importance.CORE
         )
@@ -210,6 +221,22 @@ async def start_session(
     )
     if core is None:
         raise AppError(409, "invalid_state", "concept checklist is unavailable")
+    source_chunk = await db.scalar(
+        select(Chunk)
+        .where(
+            Chunk.id.in_(core.evidence_chunk_ids),
+            Chunk.material_id == material.id,
+            Chunk.project_id == material.project_id,
+        )
+        .order_by(Chunk.page_start, Chunk.id)
+        .limit(1)
+    )
+    pages = f" {source_chunk.page_start}쪽" if source_chunk else ""
+    opening = concept.opening_question or (
+        f"{concept.title}이 적용되는 조건이나 예를 하나 골라, "
+        "왜 그렇게 되는지 자신의 말로 설명해볼까요?"
+    )
+    question = f"자료 「{material.title}」{pages}의 내용을 바탕으로, {opening}"
     existing = await db.scalar(
         select(Session).where(
             Session.user_id == user_id, Session.status == SessionStatus.IN_PROGRESS
@@ -226,7 +253,7 @@ async def start_session(
             session_id=session.id,
             seq=0,
             role=MessageRole.QUESTION,
-            text=f"먼저 {concept.title}이(가) 무엇인지 나의 말로 설명해볼까요?",
+            text=question,
         )
     )
     await db.commit()
@@ -384,7 +411,11 @@ async def session_view(
             "unverified_statements": feedback.unverified_statements if feedback else [],
         }
         if not completed:
-            hints = feedback.missing_hint if feedback else []
+            hints = (
+                feedback.missing_hint
+                if feedback and any(v.verdict != Verdict.MET for v, _ in rows)
+                else []
+            )
             public_feedback["missing_hint"] = hints or (
                 ["핵심 요소 설명이 부족해요. 현재 질문에 맞춰 다시 설명해볼까요?"]
                 if any(
@@ -402,8 +433,10 @@ async def session_view(
                     for v, e in rows
                     if v.verdict == Verdict.CONTRADICTED
                 ],
-                supplement=feedback.supplement,
-                summary_points=feedback.summary_points,
+                supplement=feedback.supplement
+                if any(v.verdict != Verdict.MET for v, _ in rows)
+                else "",
+                summary_points=[e.text for v, e in rows if v.verdict != Verdict.MET],
                 unverified_statements=feedback.unverified_statements,
             )
         remaining = sum(
@@ -444,7 +477,9 @@ async def session_view(
         "assessments": items,
         "score_change": items[-1]["score"] - items[0]["score"] if items else None,
         "remaining_core_count": remaining,
-        "recommendation": await _recommendation(db, user_id, concept.id) if completed else None,
+        "recommendation": await _recommendation(db, user_id, concept.id, project_id=project.id)
+        if completed
+        else None,
     }
     if session.status == SessionStatus.IN_PROGRESS:
         view["followups_remaining"] = MAX_FOLLOWUPS - session.followups_used
@@ -470,7 +505,7 @@ async def submit_answer(
         raise AppError(409, "invalid_state", "session has ended")
     if _live_lock(session, lease_seconds):
         raise AppError(409, "evaluation_in_progress")
-    concept, material, _ = await _owned_concept(db, user_id, session.concept_id)
+    concept, material, project = await _owned_concept(db, user_id, session.concept_id)
     if material.status != MaterialStatus.READY:
         raise AppError(409, "invalid_state", "material is not ready")
     elements = list(
@@ -513,6 +548,9 @@ async def submit_answer(
     importance = {e.id: Importance(e.importance) for e in elements}
     element_text = {e.id: e.text for e in elements}
     data = {
+        "project_id": str(project_id),
+        "project_title": project.name,
+        "material_title": material.title,
         "concept_title": concept.title,
         "concept_description": concept.description,
         "checklist": element_data,
@@ -567,6 +605,8 @@ async def submit_answer(
                         )
                 pairs = [(importance[e.element_id], e.verdict) for e in output.elements]
                 state = compute_concept_state(True, pairs)
+                if state != ConceptState.UNDERSTOOD and not output.feedback.missing_hint:
+                    raise ValueError("an unfinished concept requires a brief explanation")
                 if completion_reason(state, used) is None and not output.followup_question:
                     raise ValueError("an unfinished assessment requires a followup question")
 
@@ -630,11 +670,17 @@ async def submit_answer(
             for e in output.elements
             if e.verdict == Verdict.CONTRADICTED
         ]
+        needs_help = any(e.verdict != Verdict.MET for e in output.elements)
+        if not needs_help:
+            consistent_feedback["missing_hint"] = []
+            consistent_feedback["supplement"] = ""
         db.add(
             Feedback(
                 assessment_id=assessment.id,
                 **consistent_feedback,
-                summary_points=output.summary_points,
+                summary_points=[
+                    element_text[e.element_id] for e in output.elements if e.verdict != Verdict.MET
+                ],
                 unverified_statements=[s.model_dump() for s in output.unverified_statements],
             )
         )
