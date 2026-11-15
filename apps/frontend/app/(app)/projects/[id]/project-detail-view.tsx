@@ -69,11 +69,11 @@ export function ProjectDetailView() {
   const setMaterialCount = useCallback(
     (count: number) =>
       setLoaded((prev) =>
-        prev?.project && prev.project.material_count !== count
+        prev?.id === id && prev.project && prev.project.material_count !== count
           ? { ...prev, project: { ...prev.project, material_count: count } }
           : prev,
       ),
-    [],
+    [id],
   );
 
   const setRecordTotal = useCallback((total: number) => {
@@ -268,6 +268,7 @@ export function ProjectDetailView() {
           )}
           {tab === "materials" && (
             <MaterialsPanel
+              key={project.id}
               projectId={project.id}
               projectName={project.name}
               onCountChange={setMaterialCount}

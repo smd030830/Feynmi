@@ -116,7 +116,7 @@ export function SessionView() {
     if (!session || live.current.pending) return;
     live.current.pending = true;
     setPending(true); setError("");
-    try { const next = await startSession(session.concept_id); live.current.pending = false; setPending(false); router.push(`/sessions/${next.id}`); }
+    try { const next = await startSession(session.concept_id); router.push(`/sessions/${next.id}`); }
     catch (err) { live.current.pending = false; setError(apiErrorMessage(err)); setPending(false); }
   }
 

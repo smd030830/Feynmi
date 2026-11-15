@@ -52,12 +52,17 @@ async def _owned_project(db: AsyncSession, user_id: uuid.UUID, project_id: uuid.
     return project
 
 
-async def owned_material(db: AsyncSession, user_id: uuid.UUID, material_id: uuid.UUID) -> Material:
-    material = await db.scalar(
+async def owned_material(
+    db: AsyncSession, user_id: uuid.UUID, material_id: uuid.UUID, *, lock: bool = False
+) -> Material:
+    statement = (
         select(Material)
         .join(Project, Project.id == Material.project_id)
         .where(Material.id == material_id, Project.user_id == user_id)
     )
+    if lock:
+        statement = statement.with_for_update(of=Material)
+    material = await db.scalar(statement)
     if material is None:
         raise AppError(404, "not_found", "material not found")
     return material
@@ -122,7 +127,7 @@ async def complete_upload(
     같은 요청이 다시 와도 작업을 두 번 등록하지 않는다. GCS가 크기 범위를 강제하지만
     (에뮬레이터는 강제하지 않음) 실제 크기를 한 번 더 확인한다.
     """
-    material = await owned_material(db, user_id, material_id)
+    material = await owned_material(db, user_id, material_id, lock=True)
     if material.status != MaterialStatus.PENDING_UPLOAD:
         return material, False
     size = await asyncio.to_thread(storage.size, material.gcs_path)
@@ -206,7 +211,7 @@ async def list_materials(
 
 async def retry_material(db: AsyncSession, user_id: uuid.UUID, material_id: uuid.UUID) -> Material:
     """`failed`일 때만 보관된 원본으로 다시 분석한다 (architecture 7.1 재시도 버튼)."""
-    material = await owned_material(db, user_id, material_id)
+    material = await owned_material(db, user_id, material_id, lock=True)
     if material.status != MaterialStatus.FAILED:
         raise AppError(409, "invalid_state", f"material is {material.status}")
     material.status = MaterialStatus.QUEUED.value

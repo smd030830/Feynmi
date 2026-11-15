@@ -47,6 +47,9 @@ export function MaterialsPanel({
   const { me, setMe } = useAccount();
   const [items, setItems] = useState<Material[]>();
   const [loadError, setLoadError] = useState<unknown>();
+  const [reloading, setReloading] = useState(false);
+  const [retrying, setRetrying] = useState<Set<string>>(new Set());
+  const retryPending = useRef(new Set<string>());
   const [notices, setNotices] = useState<Notice[]>([]);
   const [uploading, setUploading] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -54,6 +57,7 @@ export function MaterialsPanel({
   const input = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
+    setReloading(true);
     try {
       const { items } = await listMaterials(projectId);
       setItems(items);
@@ -62,6 +66,8 @@ export function MaterialsPanel({
       onItemsChange?.(items);
     } catch (error) {
       setLoadError(error);
+    } finally {
+      setReloading(false);
     }
   }, [projectId, onCountChange, onItemsChange]);
 
@@ -122,6 +128,9 @@ export function MaterialsPanel({
   }
 
   async function retry(material: Material) {
+    if (retryPending.current.has(material.id)) return;
+    retryPending.current.add(material.id);
+    setRetrying(new Set(retryPending.current));
     try {
       await retryMaterial(material.id);
     } catch (error) {
@@ -131,6 +140,8 @@ export function MaterialsPanel({
       ]);
     }
     await refresh();
+    retryPending.current.delete(material.id);
+    setRetrying(new Set(retryPending.current));
   }
 
   function onDrop(event: DragEvent) {
@@ -212,13 +223,16 @@ export function MaterialsPanel({
       )}
 
       {loadError !== undefined && (
-        <p className="text-caption text-danger">{apiErrorMessage(loadError)}</p>
+        <div role="alert" className="flex items-center justify-between gap-4 rounded-control bg-danger-soft p-4">
+          <p className="text-caption text-danger">{apiErrorMessage(loadError)}</p>
+          <Button variant="soft" disabled={reloading} onClick={() => void refresh()}>{reloading ? "불러오는 중…" : "다시 시도"}</Button>
+        </div>
       )}
 
       {items && items.length > 0 && (
         <ul className="flex flex-col divide-y divide-line rounded-card border border-line bg-surface">
           {items.map((m) => (
-            <MaterialRow key={m.id} material={m} onRetry={retry} />
+            <MaterialRow key={m.id} material={m} onRetry={retry} retrying={retrying.has(m.id)} />
           ))}
         </ul>
       )}
@@ -256,9 +270,11 @@ function formatSize(bytes: number) {
 function MaterialRow({
   material: m,
   onRetry,
+  retrying,
 }: {
   material: Material;
   onRetry: (m: Material) => void;
+  retrying: boolean;
 }) {
   const working = IN_PROGRESS.includes(m.status);
   const badge =
@@ -296,8 +312,8 @@ function MaterialRow({
         {STATUS_LABEL[m.status]}
       </span>
       {m.status === "failed" && (
-        <Button variant="soft" onClick={() => onRetry(m)}>
-          재시도
+        <Button variant="soft" disabled={retrying} onClick={() => onRetry(m)}>
+          {retrying ? "다시 분석 중…" : "재시도"}
         </Button>
       )}
     </li>

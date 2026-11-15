@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Conversation, FeedbackList, StateBadge } from "@/components/learning-feedback";
 import { ProgressRing } from "@/components/progress-ring";
@@ -15,6 +15,7 @@ export function ResultView() {
   const [attempt, setAttempt] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const starting = useRef(false);
   useEffect(() => {
     let cancelled = false;
     getSessionResult(id).then((session) => !cancelled && setLoaded({ id, session }), (err) => !cancelled && setLoaded({ id, error: apiErrorMessage(err) }));
@@ -22,10 +23,11 @@ export function ResultView() {
   }, [id, attempt]);
   const session = loaded?.id === id ? loaded.session : undefined;
   async function next() {
-    if (!session?.recommendation) return;
+    if (!session?.recommendation || starting.current) return;
+    starting.current = true;
     setPending(true); setError("");
-    try { const value = await startSession(session.recommendation.concept_id); setPending(false); router.push(`/sessions/${value.id}`); }
-    catch (err) { setError(apiErrorMessage(err)); setPending(false); }
+    try { const value = await startSession(session.recommendation.concept_id); router.push(`/sessions/${value.id}`); }
+    catch (err) { starting.current = false; setError(apiErrorMessage(err)); setPending(false); }
   }
   if (loaded?.id === id && loaded.error) return <div role="alert" className="rounded-card border border-line bg-surface p-8"><p>{loaded.error}</p><Button className="mt-4" onClick={() => setAttempt((n) => n + 1)}>다시 시도</Button><Link href={`/sessions/${id}`} className={buttonStyles("ghost", "ml-2")}>학습 상세로</Link></div>;
   if (!session) return <p aria-busy className="text-body text-subtle">학습 결과를 불러오고 있어요…</p>;

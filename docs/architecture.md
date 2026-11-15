@@ -331,7 +331,7 @@ sequenceDiagram
 | `ready` | 완료 | 개념 목록 확인 가능 |
 | `failed` | 실패 | `failure_code`와 재시도 버튼 |
 
-**실패 코드**: `unsupported_format`, `file_too_large`, `too_many_pages`, `no_extractable_text`(OCR로도 글자를 얻지 못함, FR-1.4), `corrupted_file`(깨진 파일, 암호가 걸린 PDF·HWP, 배포용 HWP), `llm_failed`, `internal_error`.
+**실패 코드**: `unsupported_format`, `file_too_large`, `too_many_pages`, `no_extractable_text`(OCR로도 글자를 얻지 못함, FR-1.4), `corrupted_file`(깨진 파일, 암호가 걸린 PDF·HWP, 배포용 HWP), `llm_failed`, `ai_unavailable`(AI 설정 없음), `internal_error`.
 
 **설계 요점**
 - **Signed URL**: V4 PUT URL에 `Content-Type`과 `x-goog-content-length-range`(0~PRD FR-1.2 상한)를 서명에 포함시켜 GCS가 용량을 강제하게 한다. 객체 경로는 `users/{user_id}/projects/{project_id}/materials/{material_id}/original.{ext}`이다. 여러 파일을 한 번에 올리면 파일마다 이 흐름을 따로 실행한다(동시 업로드 수는 프론트 상수로 제한). 버킷은 공개 접근 차단 상태이고, 프론트 도메인의 PUT만 허용하도록 CORS를 설정한다. 원본 다운로드 URL은 발급하지 않는다(MVP에 원본 열람 기능 없음).
@@ -356,6 +356,7 @@ sequenceDiagram
 - **멱등성**: 작업 페이로드에 `attempt`(재시도 버튼을 누를 때마다 증가)를 넣는다. 워커는 DB의 `analysis_attempt`와 다르거나 이미 끝난(`ready`, `failed`) 작업을 무시한다. 같은 시도가 진행 상태에서 다시 오면(인스턴스가 끊겨 재전달된 경우) 처음부터 다시 한다. 시작할 때 해당 자료의 기존 청크와 개념을 지우고 다시 만든다. `upload-complete`가 다시 와도 작업을 두 번 등록하지 않는다.
 - **재시도 경계**: 사용자 원인 실패(형식, 쪽수, 텍스트 없음)와 LLM 최종 실패는 `failed`로 기록하고 2xx를 반환해서 Cloud Tasks가 재전달하지 않게 한다. 인스턴스 장애처럼 응답 없이 끊긴 경우는 Cloud Tasks가 재전달한다.
 - **멈춘 작업**: 진행 상태인데 `updated_at`이 작업 데드라인(9.3)을 넘긴 자료는 조회할 때 `failed/internal_error`로 바꾼다. 사용자는 재시도 버튼으로 복구한다 (FR-1.3).
+- 업로드 완료와 실패 자료의 재시도는 자료 행을 잠근 뒤 상태를 전환한다. 같은 자료에 대한 동시 요청이 분석 작업을 중복 등록하지 않도록 한다. 화면에서도 재시도와 새 세션 시작은 요청 중 잠금을 유지한다.
 - **재시도 버튼**: `POST /materials/{id}/retry`는 `failed` 상태에서만 허용한다. `analysis_attempt`를 1 올리고 보관된 원본으로 작업을 다시 등록한다.
 
 ### 7.2 세션과 답변 평가 (PRD F2, F3, 6.1, 6.2)
