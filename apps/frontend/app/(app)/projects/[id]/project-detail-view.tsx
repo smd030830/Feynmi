@@ -6,11 +6,12 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
 import { MaterialsPanel } from "@/components/materials-panel";
+import { RecordsPanel } from "@/components/records-panel";
 import { ProgressRing } from "@/components/progress-ring";
 import { ProjectTile } from "@/components/project-tile";
 import { StateDistributionBar } from "@/components/state-distribution-bar";
 import { StateBadge } from "@/components/learning-feedback";
-import { ApiError, apiErrorMessage, getProject, listConcepts, startSession, type Concept, type Project } from "@/lib/api";
+import { ApiError, apiErrorMessage, getProject, listConcepts, listRecords, startSession, type Concept, type Project, type RecordPage } from "@/lib/api";
 
 const tabs = [
   { key: "concepts", label: "개념" },
@@ -20,10 +21,10 @@ const tabs = [
 
 type TabKey = (typeof tabs)[number]["key"];
 
-function tabCount(project: Project, tab: TabKey) {
+function tabCount(project: Project, tab: TabKey, recordTotal?: number) {
   if (tab === "concepts") return Object.values(project.state_counts).reduce((a, b) => a + b, 0);
   if (tab === "materials") return project.material_count;
-  return 0; // 학습기록 수는 FM-044에서 채운다
+  return recordTotal ?? "-";
 }
 
 export function ProjectDetailView() {
@@ -34,15 +35,16 @@ export function ProjectDetailView() {
   const tab: TabKey = tabs.some((t) => t.key === tabParam) ? (tabParam as TabKey) : "concepts";
 
   // undefined: 불러오는 중
-  const [loaded, setLoaded] = useState<{ id: string; project?: Project; concepts?: Concept[]; recommendedId?: string; error?: unknown }>();
+  const [loaded, setLoaded] = useState<{ id: string; project?: Project; concepts?: Concept[]; records?: RecordPage; recordTotal?: number; recommendedId?: string; error?: unknown }>();
   const [attempt, setAttempt] = useState(0);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getProject(id), listConcepts(id)]).then(
-      ([project, concepts]) => !cancelled && setLoaded({ id, project, concepts: concepts.items, recommendedId: concepts.recommendation?.concept_id }),
+    // 기록 조회 실패는 기록 탭에서 재시도하고 프로젝트·자료 접근은 유지한다.
+    Promise.all([getProject(id), listConcepts(id), listRecords(id).catch(() => undefined)]).then(
+      ([project, concepts, records]) => !cancelled && setLoaded({ id, project, concepts: concepts.items, records, recordTotal: records?.total, recommendedId: concepts.recommendation?.concept_id }),
       (error) => !cancelled && setLoaded({ id, error }),
     );
     return () => {
@@ -69,6 +71,12 @@ export function ProjectDetailView() {
       ),
     [],
   );
+
+  const setRecordTotal = useCallback((total: number) => {
+    setLoaded((previous) => previous?.id === id && previous.recordTotal !== total
+      ? { ...previous, recordTotal: total }
+      : previous);
+  }, [id]);
 
   if (current?.error) {
     const notFound = current.error instanceof ApiError && current.error.code === "not_found";
@@ -159,7 +167,7 @@ export function ProjectDetailView() {
                     active ? "bg-primary-soft text-primary-strong" : "bg-[#f1f5f9] text-subtle"
                   }`}
                 >
-                  {tabCount(project, t.key)}
+                  {tabCount(project, t.key, current.recordTotal)}
                 </span>
               </Link>
             );
@@ -192,11 +200,7 @@ export function ProjectDetailView() {
             />
           )}
           {tab === "records" && (
-            <EmptyState
-              icon="chart"
-              title="아직 학습기록이 없어요"
-              description="개념을 설명하고 나면 여기에서 다시 볼 수 있어요."
-            />
+            <RecordsPanel key={project.id} projectId={project.id} initialPage={current.records} onTotalChange={setRecordTotal} />
           )}
         </div>
       </div>

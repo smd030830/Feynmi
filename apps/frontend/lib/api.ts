@@ -215,6 +215,25 @@ export function getSession(id: string) {
   return apiFetch<LearningSession>(`/sessions/${encodeURIComponent(id)}`);
 }
 
+export type LearningRecord = {
+  id: string;
+  concept_id: string;
+  concept_title: string;
+  project_id: string;
+  project_name: string;
+  started_at: string;
+  ended_at: string | null;
+  score: number | null;
+  status: "completed" | "aborted";
+};
+export type RecordPage = { items: LearningRecord[]; total: number; next_cursor: string | null };
+
+export function listRecords(projectId?: string, cursor?: string) {
+  const path = projectId ? `/projects/${encodeURIComponent(projectId)}/records` : "/records";
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return apiFetch<RecordPage>(path + query);
+}
+
 export function cleanupSessions() {
   return apiFetch<void>("/sessions/cleanup", { method: "POST" });
 }
