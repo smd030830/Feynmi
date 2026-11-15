@@ -1,6 +1,6 @@
 """생성 결과 계약만 정의한다. 개념 추출·평가 업무 흐름은 구현하지 않는다."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -56,6 +56,12 @@ class AssessmentFeedback(OutputModel):
     missing: list[Text]
     incorrect: list[Text]
     supplement: str
+
+
+class AnswerRelevanceOutput(OutputModel):
+    decision: Literal["responsive", "off_topic", "nonsense", "instruction_only"]
+    reason: Text
+    answer_quote: Text | None
 
 
 class AssessmentOutput(OutputModel):

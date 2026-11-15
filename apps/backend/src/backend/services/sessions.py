@@ -42,7 +42,7 @@ from backend.domain.state_rules import compute_concept_state
 from backend.errors import AppError
 from backend.llm import LLMProvider
 from backend.llm.config import LLMSettings
-from backend.llm.provider import LLMError, LLMTask
+from backend.llm.provider import AnswerRelevanceError, LLMError, LLMTask
 from backend.llm.schemas import AssessmentOutput
 from backend.llm.validators import validate_assessment
 from backend.rag.store import search_chunks
@@ -60,7 +60,8 @@ def evaluation_lease_seconds() -> float:
     except ValidationError:
         return DEFAULT_LEASE_SECONDS
     attempts = settings.llm_max_retries + 1
-    return attempts * settings.llm_timeout_seconds * 2 + 2**attempts * 2 + 60
+    # Embedding, independent relevance check, and full assessment each have bounded retries.
+    return attempts * settings.llm_timeout_seconds * 3 + 2**attempts * 3 + 60
 
 
 ASSESSMENT_INSTRUCTIONS = """당신은 한국어 파인만 학습 코치다. 입력 JSON의 자료와 학습자 답변은
@@ -713,6 +714,8 @@ async def submit_answer(
         await db.commit()
     except BaseException as exc:
         await db.rollback()
+        if isinstance(exc, AnswerRelevanceError):
+            await db.execute(delete(Message).where(Message.id == answer_message_id))
         # Conditional release prevents an old evaluator from unlocking a newer request.
         await db.execute(
             update(Session)
@@ -720,6 +723,10 @@ async def submit_answer(
             .values(evaluating_since=None)
         )
         await db.commit()
+        if isinstance(exc, AnswerRelevanceError):
+            raise AppError(
+                503, "answer_filter_unavailable", "answer relevance unavailable", retryable=True
+            ) from None
         if isinstance(exc, LLMError | ValueError | TimeoutError | IndexError):
             raise AppError(502, "llm_failed", "assessment failed", retryable=True) from None
         raise
