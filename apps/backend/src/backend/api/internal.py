@@ -1,6 +1,6 @@
 """내부 작업 엔드포인트 (architecture 7.1, 8.1 `/internal`).
 
-Cloud Tasks만 부른다. Firebase 로그인 대신 Cloud Tasks가 붙인 OIDC 토큰을 확인한다.
+Cloud Tasks와 Cloud Scheduler가 부른다. Firebase 로그인 대신 지정 SA의 OIDC 토큰을 확인한다.
 `QUEUE_MODE=inline`이면 쓰지 않으므로 없는 경로(404)로 둔다.
 """
 
@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel
 
 from backend.errors import AppError
+from backend.services.account import retry_deletions_once
 from backend.services.analysis import analyze_material
 
 router = APIRouter(prefix="/internal/tasks", tags=["internal"], include_in_schema=False)
@@ -50,4 +51,18 @@ async def run_analyze_material(body: AnalyzeMaterialTask, request: Request) -> d
         llm_settings=state.llm_settings,
         ocr_factory=state.ocr_factory,
     )
+    return {"status": "done"}
+
+
+@router.post("/retry-account-deletions", dependencies=[Depends(require_task_token)])
+async def run_retry_account_deletions(request: Request) -> dict[str, str]:
+    """Scheduler HTTP 작업 안에서 한 번 재시도한다. 실패는 다음 전송에서 다시 처리한다."""
+    state = request.app.state
+    if state.deletion_recovery_mode != "scheduled":
+        raise AppError(404, "not_found", "not found")
+    complete = await retry_deletions_once(state.session_factory, state.account_cloud)
+    if not complete:
+        raise AppError(
+            503, "cloud_unavailable", "account deletion recovery incomplete", retryable=True
+        )
     return {"status": "done"}

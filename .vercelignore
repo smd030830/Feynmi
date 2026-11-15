@@ -8,6 +8,7 @@
 .omx
 .local-tests
 .vercel
+gha-creds-*.json
 **/.env
 **/.env.*
 **/node_modules

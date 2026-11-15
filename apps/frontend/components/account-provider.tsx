@@ -4,12 +4,14 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
 import { getMe, type Me } from "@/lib/api";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { loadAccount } from "@/lib/load-account";
 
 type Account = {
   // undefined: Firebase가 저장된 로그인 상태를 아직 복원하지 않음, null: 로그아웃 상태
   user: User | null | undefined;
   // undefined: 불러오는 중, null: 불러오지 못함. 로그인하지 않았으면 항상 undefined
   me: Me | null | undefined;
+  error?: unknown;
   setMe: (me: Me) => void;
   // 이메일 인증 직후처럼 서버가 보는 토큰 클레임을 갱신한 뒤 사용자 정보를 다시 받는다
   refresh: () => Promise<Me>;
@@ -22,7 +24,7 @@ const AccountContext = createContext<Account | null>(null);
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   // 사용자가 바뀌면 이전 사용자의 정보를 쓰지 않도록 uid와 함께 보관한다
-  const [loaded, setLoaded] = useState<{ uid: string; me: Me | null } | null>(null);
+  const [loaded, setLoaded] = useState<{ uid: string; me: Me | null; error?: unknown } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const uid = user?.uid;
 
@@ -31,9 +33,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!uid) return;
     let cancelled = false;
-    getMe().then(
+    loadAccount(attempt > 0).then(
       (me) => !cancelled && setLoaded({ uid, me }),
-      () => !cancelled && setLoaded({ uid, me: null }),
+      (error) => !cancelled && setLoaded({ uid, me: null, error }),
     );
     return () => {
       cancelled = true;
@@ -43,6 +45,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const account: Account = {
     user,
     me: uid && loaded?.uid === uid ? loaded.me : undefined,
+    error: uid && loaded?.uid === uid ? loaded.error : undefined,
     setMe: (me) => uid && setLoaded({ uid, me }),
     async refresh() {
       if (!user) throw new Error("로그인하지 않았습니다.");

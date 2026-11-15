@@ -600,6 +600,7 @@ erDiagram
 | `TASKS_PROJECT`, `TASKS_LOCATION`, `TASKS_QUEUE`, `TASKS_INVOKER_SA` | Cloud Tasks 큐와 OIDC 서명 SA | |
 | `PUBLIC_BASE_URL` | 워커 호출 URL, OIDC audience | |
 | `ANALYSIS_DEADLINE_MINUTES` | 분석 작업 데드라인(분). 진행 상태로 이보다 오래 멈춘 자료는 실패 처리 (7.1). Cloud Tasks 디스패치 데드라인과 같게 둔다 | |
+| `DELETION_RECOVERY_MODE` | `background`(기본, 30초 루프) 또는 `scheduled`(Cloud Scheduler의 인증된 HTTP 요청으로 한 번 재시도). `scheduled`는 `cloud_tasks` 모드와 함께 사용 | |
 | `CORS_ORIGINS` | 허용 오리진 목록 | |
 
 프론트엔드는 `NEXT_PUBLIC_API_BASE_URL`과 `NEXT_PUBLIC_FIREBASE_*`(웹 앱 설정)를 쓴다. Firebase 웹 설정은 클라이언트에 노출되는 식별자라서 비밀이 아니다. 보호는 Firebase 승인 도메인 설정과 백엔드 토큰 검증으로 한다.
@@ -615,6 +616,7 @@ erDiagram
 | Vercel | `apps/frontend`를 루트로 배포. 프리뷰 배포 도메인은 Firebase 승인 도메인과 `CORS_ORIGINS`에 등록 |
 | Cloud Run `feynmi-api` | `apps/backend/Dockerfile`. Cloud SQL 커넥터로 접속. 요청 타임아웃은 분석 작업 데드라인 이상으로 설정(초기 30분). 서비스 계정 권한: Cloud SQL Client, 버킷 객체 읽기/쓰기, Cloud Tasks Enqueuer, 자기 자신에 대한 Token Creator(Signed URL 서명용), Secret Accessor |
 | Cloud Tasks `analysis` | 디스패치 데드라인 30분(HTTP 대상 상한), 최대 시도 3회. 인프라 장애에 대한 재전달용 |
+| Cloud Scheduler 삭제 복구(저비용 시연) | `DELETION_RECOVERY_MODE=scheduled`에서 `POST /api/v1/internal/tasks/retry-account-deletions` 호출. OIDC SA는 `TASKS_INVOKER_SA`, audience는 `PUBLIC_BASE_URL`. 삭제 스냅샷 1회 처리, 실패 시 재시도 가능한 503. 요청 기반 CPU·최소 인스턴스 0개에서도 재호출로 처리 |
 | Cloud SQL | PostgreSQL 18 + `vector` 확장. 마이그레이션은 배포 전에 `alembic upgrade head`로 실행 |
 | GCS | 균일 버킷 수준 액세스, 공개 액세스 방지, 프론트 오리진 PUT용 CORS(요청 헤더 `Content-Type`, `x-goog-content-length-range` 허용). 원본과 프로필 이미지를 같은 버킷의 `users/{user_id}/` 아래에 둔다 |
 | Firebase | 이메일/비밀번호(이메일 인증 템플릿 한국어), 구글 공급자, 승인 도메인 |
@@ -661,3 +663,9 @@ erDiagram
 | 홈/기록 | `services/home.py`, `services/records.py`, `domain/stats.py`, `/`, `/records` | 040, 041, 043~045 |
 | 설정/계정 | `services/account.py`, `/settings` | 070~073 |
 | 안정화/배포 | 오류 코드 매핑, 11장 | 060, 062, 063 |
+
+## 자료 개별 삭제 (PRD FR-1.9)
+
+`DELETE /api/v1/materials/{id}`는 본인 소유의 `ready`·`failed` 자료만 처리한다. `owned_material(..., lock=True)`로 재분석과 직렬화하며 진행 중 자료는 `409 material_busy`, 다른 사용자 자료는 `404`다. 비공개 저장소 원본을 먼저 삭제하고, 성공한 뒤 Material 행을 삭제해 FK cascade로 청크·개념·관련 세션과 기록을 제거한다. 원본이 이미 없으면 성공으로 처리한다. 저장소 오류는 503을 반환하고 DB를 유지해 재시도할 수 있게 한다.
+
+이미 발급한 Signed PUT URL은 개별 취소할 수 없어 만료 전 재사용 시 원본 경로에 고아 객체가 생길 가능성이 남는다. 앱의 자료·개념·기록은 복원되지 않는다. 이를 엄격히 차단하려면 만료 후 정리 또는 업로드 경로 변경을 별도로 설계해야 한다.

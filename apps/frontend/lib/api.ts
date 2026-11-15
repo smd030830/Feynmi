@@ -60,6 +60,7 @@ const MESSAGES: Record<string, string> = {
   upload_failed: "파일을 올리지 못했어요. 네트워크를 확인한 뒤 다시 올려주세요.",
   upload_missing: "파일 업로드가 끝나지 않았어요. 다시 올려주세요.",
   storage_unavailable: "자료 저장소가 설정되지 않았어요. 관리자에게 문의해주세요.",
+  material_busy: "업로드나 분석이 진행 중인 자료는 완료된 뒤 삭제할 수 있어요.",
 };
 
 // 분석 실패 사유 (materials.failure_code, PRD FR-1.4, FR-1.7)
@@ -305,5 +306,9 @@ export function retryMaterial(materialId: string) {
   return apiFetch<Material>(`/materials/${encodeURIComponent(materialId)}/retry`, {
     method: "POST",
   });
+}
+
+export function deleteMaterial(materialId: string) {
+  return apiFetch<void>(`/materials/${encodeURIComponent(materialId)}`, { method: "DELETE" });
 }
 
