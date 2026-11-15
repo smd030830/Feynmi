@@ -31,15 +31,18 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        recovery = asyncio.create_task(
-            retry_deletions(app.state.session_factory, app.state.account_cloud)
+        recovery = (
+            asyncio.create_task(retry_deletions(app.state.session_factory, app.state.account_cloud))
+            if settings.deletion_recovery_mode == "background"
+            else None
         )
         try:
             yield
         finally:
-            recovery.cancel()
-            with suppress(asyncio.CancelledError):
-                await recovery
+            if recovery is not None:
+                recovery.cancel()
+                with suppress(asyncio.CancelledError):
+                    await recovery
             await engine.dispose()
 
     app = FastAPI(title="Feynmi API", lifespan=lifespan)
@@ -57,6 +60,7 @@ def create_app(
         make_task_token_verifier(settings) if settings.queue_mode == "cloud_tasks" else None
     )
     app.state.analysis_deadline_minutes = settings.analysis_deadline_minutes
+    app.state.deletion_recovery_mode = settings.deletion_recovery_mode
     app.state.ocr_factory = make_ocr
     app.state.llm_settings = load_llm_settings()
 
