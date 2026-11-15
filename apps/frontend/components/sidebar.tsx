@@ -3,7 +3,7 @@
 import { signOut } from "firebase/auth";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createContext, use, useEffect, useState, type ReactNode } from "react";
+import { createContext, use, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMe } from "@/components/auth-guard";
 import { Icon, type IconName } from "@/components/icon";
 import { Logo } from "@/components/logo";
@@ -65,6 +65,9 @@ export function Sidebar() {
   const nickname = me.nickname ?? "";
   const { open, setOpen } = useMobileNav();
   const [summary, setSummary] = useState<WeeklySummary>();
+  const profileMenu = useRef<HTMLDetailsElement>(null);
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", weekday: "short" }).format(new Date());
+  const today = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday);
   useEffect(() => {
     let active = true;
     const refresh = () => {
@@ -128,8 +131,9 @@ export function Sidebar() {
           {DAYS.map((day, index) => (
             <li
               key={day}
-              aria-label={`${day}요일 ${summary?.study_days[index] ? "학습 완료" : "학습 없음"}`}
-              className={`flex h-7 items-center justify-center rounded-md text-micro font-bold ${summary?.study_days[index] ? "bg-primary text-white" : "bg-canvas text-subtle"}`}
+              aria-current={index === today ? "date" : undefined}
+              aria-label={`${day}요일${index === today ? " 오늘" : ""} ${summary?.study_days[index] ? "학습 완료" : "학습 없음"}`}
+              className={`flex h-7 items-center justify-center rounded-md border text-micro font-bold ${index === today ? "border-primary" : "border-transparent"} ${summary?.study_days[index] ? "bg-primary text-white" : "bg-canvas text-subtle"}`}
             >
               {day}
             </li>
@@ -149,15 +153,21 @@ export function Sidebar() {
           <p className="truncate text-body font-semibold text-text">{nickname}</p>
           <p className="truncate text-micro text-subtle">{me.email}</p>
         </div>
-        <button
-          type="button"
-          onClick={logout}
-          aria-label="로그아웃"
-          title="로그아웃"
-          className="rounded-lg p-1.5 text-subtle transition duration-200 hover:bg-primary-soft hover:text-primary-strong"
-        >
-          <Icon name="logout" size={18} />
-        </button>
+        <details ref={profileMenu} className="relative" onKeyDown={(event) => {
+          if (event.key === "Escape" && profileMenu.current?.open) {
+            profileMenu.current.open = false;
+            profileMenu.current.querySelector("summary")?.focus();
+          }
+        }}>
+          <summary aria-label="프로필 메뉴" className="cursor-pointer list-none rounded-lg p-1.5 text-subtle transition duration-200 hover:bg-primary-soft hover:text-primary-strong [&::-webkit-details-marker]:hidden">
+            <Icon name="more" size={18} />
+          </summary>
+          <nav aria-label="프로필 메뉴" className="absolute bottom-full right-0 mb-2 w-40 rounded-xl border border-line bg-surface p-2 shadow-lg" onClick={() => { if (profileMenu.current) profileMenu.current.open = false; }}>
+            <Link href="/settings#account" className="block rounded-lg px-3 py-2 text-body text-text hover:bg-primary-soft">프로필 관리</Link>
+            <Link href="/settings" className="block rounded-lg px-3 py-2 text-body text-text hover:bg-primary-soft">설정</Link>
+            <button type="button" onClick={logout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-body text-muted hover:bg-primary-soft"><Icon name="logout" size={16} />로그아웃</button>
+          </nav>
+        </details>
       </div>
     </aside>
     </>
