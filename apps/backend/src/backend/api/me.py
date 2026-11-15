@@ -1,10 +1,9 @@
 import asyncio
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, StringConstraints
-from sqlalchemy import select
 
 from backend.api.deps import (
     CurrentUser,
@@ -14,15 +13,13 @@ from backend.api.deps import (
     require_profile,
     require_verified_email,
 )
-from backend.db.models import Assessment, Session, UserSettings
+from backend.db.models import UserSettings
 from backend.domain.stats import LearningStats
 from backend.services.account import active_user
 from backend.services.cloud import AccountCloud
-from backend.services.stats import load_stats
+from backend.services.stats import load_stats, load_weekly_days
 
 router = APIRouter(prefix="/me", tags=["me"])
-
-KST = timezone(timedelta(hours=9), name="Asia/Seoul")
 
 
 class WeeklySummary(BaseModel):
@@ -43,23 +40,10 @@ async def get_summary(
     current: Annotated[CurrentUser, Depends(require_profile)],
     db: DbSession,
 ) -> WeeklySummary:
-    today = datetime.now(UTC).astimezone(KST).date()
-    monday = today - timedelta(days=today.weekday())
-    start = datetime.combine(monday, datetime.min.time(), tzinfo=KST)
-    timestamps = await db.scalars(
-        select(Assessment.created_at)
-        .join(Session, Session.id == Assessment.session_id)
-        .where(
-            Session.user_id == current.user.id,
-            Assessment.created_at >= start,
-            Assessment.created_at < start + timedelta(days=7),
-        )
-    )
-    studied = {stamp.astimezone(KST).date() for stamp in timestamps}
     settings = await db.get(UserSettings, current.user.id)
     return WeeklySummary(
         weekly_goal_days=settings.weekly_goal_days if settings else 3,
-        study_days=[monday + timedelta(days=i) in studied for i in range(7)],
+        study_days=await load_weekly_days(db, current.user.id),
     )
 
 

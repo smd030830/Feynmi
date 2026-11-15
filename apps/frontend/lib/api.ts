@@ -257,6 +257,7 @@ export type HomeData = {
   next_color: ProjectColor;
   recommendation: LearningSession["recommendation"];
   weak_concepts: NonNullable<LearningSession["recommendation"]>[];
+  notifications: { kind: "goal" | "review"; message: string; concept_id: string | null }[];
 };
 export function getHome() {
   return apiFetch<HomeData>("/home");

@@ -65,6 +65,19 @@ export function HomeDashboard() {
 
   return (
     <>
+      {home.notifications.length > 0 && (
+        <section aria-label="학습 알림" className="space-y-3">
+          {home.notifications.map((notification) => (
+            <div key={notification.kind} className="flex items-center gap-4 rounded-card border border-primary-line bg-primary-soft px-5 py-4">
+              <Icon name="bell" size={20} className="shrink-0 text-primary" />
+              <p className="flex-1 text-body font-semibold text-primary-strong">{notification.message}</p>
+              {notification.kind === "review" && notification.concept_id && (
+                <Button variant="soft" disabled={starting} onClick={() => notification.concept_id && void begin(notification.concept_id)}>복습하기</Button>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
       <section className="relative flex items-center justify-between overflow-hidden rounded-hero border border-primary-line bg-[linear-gradient(125deg,#eef2ff_0%,#f4f1ff_53%,#effaff_100%)] px-12 py-[38px]">
         <div className="absolute -right-16 -top-20 size-64 rounded-full bg-white/50" aria-hidden />
         <div className="relative">
