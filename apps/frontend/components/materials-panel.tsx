@@ -60,21 +60,39 @@ export function MaterialsPanel({
   const [deleteError, setDeleteError] = useState("");
   const deletePending = useRef(false);
   const input = useRef<HTMLInputElement>(null);
+  const scope = useRef({ projectId, generation: 0, active: false });
+  const refreshRequest = useRef(0);
+
+  useEffect(() => {
+    scope.current = { projectId, generation: scope.current.generation + 1, active: true };
+    return () => {
+      scope.current.active = false;
+      scope.current.generation += 1;
+    };
+  }, [projectId]);
+
+  const isCurrent = useCallback((generation: number) =>
+    scope.current.active && scope.current.projectId === projectId && scope.current.generation === generation,
+  [projectId]);
 
   const refresh = useCallback(async () => {
+    const generation = scope.current.generation;
+    if (!isCurrent(generation)) return;
+    const request = ++refreshRequest.current;
     setReloading(true);
     try {
       const { items } = await listMaterials(projectId);
+      if (!isCurrent(generation) || request !== refreshRequest.current) return;
       setItems(items);
       setLoadError(undefined);
       onCountChange(items.length);
       onItemsChange?.(items);
     } catch (error) {
-      setLoadError(error);
+      if (isCurrent(generation) && request === refreshRequest.current) setLoadError(error);
     } finally {
-      setReloading(false);
+      if (isCurrent(generation) && request === refreshRequest.current) setReloading(false);
     }
-  }, [projectId, onCountChange, onItemsChange]);
+  }, [projectId, onCountChange, onItemsChange, isCurrent]);
 
   useEffect(() => {
     void refresh();
@@ -89,25 +107,29 @@ export function MaterialsPanel({
   }, [busy, refresh]);
 
   async function sendOne(file: File) {
+    const generation = scope.current.generation;
+    if (!isCurrent(generation)) return;
     try {
       await uploadMaterial(projectId, file);
     } catch (error) {
+      if (!isCurrent(generation)) return;
       setNotices((list) => [
         { id: Date.now() + Math.random(), name: file.name, message: apiErrorMessage(error) },
         ...list,
       ]);
     } finally {
-      setUploading((n) => n - 1);
+      if (isCurrent(generation)) setUploading((n) => n - 1);
     }
-    await refresh();
+    if (isCurrent(generation)) await refresh();
   }
 
   // 파일마다 업로드 세 단계를 따로 실행하고, 동시에 올리는 수는 UPLOAD_PARALLEL개로 제한한다 (architecture 7.1)
   async function send(files: File[]) {
+    const generation = scope.current.generation;
     setUploading((n) => n + files.length);
     const queue = [...files];
     const worker = async () => {
-      for (let file = queue.shift(); file; file = queue.shift()) await sendOne(file);
+      for (let file = queue.shift(); file && isCurrent(generation); file = queue.shift()) await sendOne(file);
     };
     await Promise.all(Array.from({ length: Math.min(UPLOAD_PARALLEL, files.length) }, worker));
   }
@@ -122,48 +144,58 @@ export function MaterialsPanel({
   }
 
   async function consentAndSend() {
+    const generation = scope.current.generation;
     const files = pendingFiles ?? [];
     setPendingFiles(null);
     try {
-      setMe(await giveAiConsent());
+      const updated = await giveAiConsent();
+      if (!isCurrent(generation)) return;
+      setMe(updated);
       await send(files);
     } catch (error) {
+      if (!isCurrent(generation)) return;
       setNotices((list) => [{ id: Date.now(), name: "동의", message: apiErrorMessage(error) }, ...list]);
     }
   }
 
   async function retry(material: Material) {
+    const generation = scope.current.generation;
     if (retryPending.current.has(material.id)) return;
     retryPending.current.add(material.id);
     setRetrying(new Set(retryPending.current));
     try {
       await retryMaterial(material.id);
     } catch (error) {
+      if (!isCurrent(generation)) return;
       setNotices((list) => [
         { id: Date.now(), name: material.title, message: apiErrorMessage(error) },
         ...list,
       ]);
     }
+    if (!isCurrent(generation)) return;
     await refresh();
+    if (!isCurrent(generation)) return;
     retryPending.current.delete(material.id);
     setRetrying(new Set(retryPending.current));
   }
 
   async function remove() {
     if (!deleteTarget || deletePending.current) return;
+    const generation = scope.current.generation;
     deletePending.current = true;
     setDeleting(true);
     setDeleteError("");
     try {
       await deleteMaterial(deleteTarget.id);
+      if (!isCurrent(generation)) return;
       setItems((previous) => previous?.filter((item) => item.id !== deleteTarget.id));
       setDeleteTarget(null);
       await refresh();
     } catch (error) {
-      setDeleteError(apiErrorMessage(error));
+      if (isCurrent(generation)) setDeleteError(apiErrorMessage(error));
     } finally {
       deletePending.current = false;
-      setDeleting(false);
+      if (isCurrent(generation)) setDeleting(false);
     }
   }
 
