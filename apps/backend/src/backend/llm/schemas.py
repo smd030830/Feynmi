@@ -58,6 +58,7 @@ class AssessmentFeedback(OutputModel):
 
 
 class AssessmentOutput(OutputModel):
+    latest_answer_relevant: bool = True
     elements: list[ElementAssessment]
     unverified_statements: list[UnverifiedStatement]
     feedback: AssessmentFeedback

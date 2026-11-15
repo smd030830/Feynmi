@@ -49,6 +49,7 @@ const MESSAGES: Record<string, string> = {
   invalid_state: "이미 종료되었거나 현재 처리할 수 없는 요청입니다.",
   evaluation_in_progress: "설명을 분석하고 있어요. 잠시 후 다시 확인해주세요.",
   llm_failed: "AI 분석을 완료하지 못했어요. 작성한 답변은 보관되며 다시 보낼 수 있어요.",
+  off_topic_response: "현재 질문과 관련 없는 답변이에요. 학습 중인 개념을 내 말로 설명해주세요. 점수와 남은 질문 횟수는 바뀌지 않았어요.",
   account_deleting: "회원 탈퇴를 처리하고 있어요. 잠시 후 다시 확인해주세요.",
   cloud_unavailable: "계정 서비스를 연결하지 못했어요. 잠시 후 다시 시도해주세요.",
   consent_required: "자료를 올리기 전에 외부 AI 전송 안내에 동의해주세요.",

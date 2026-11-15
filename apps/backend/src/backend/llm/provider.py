@@ -208,6 +208,8 @@ class OpenAIProvider:
             if len(texts) != 1:
                 raise _InvalidOutput("expected one structured output")
             result = schema.model_validate_json(texts[0], strict=True)
+            if not set(schema.model_fields).issubset(result.model_fields_set):
+                raise _InvalidOutput("structured output omitted required properties")
             if validate:
                 validate(result)
             return result

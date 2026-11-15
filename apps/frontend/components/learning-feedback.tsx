@@ -13,6 +13,22 @@ export function StateBadge({ state }: { state: ConceptState }) {
 export function FeedbackList({ items }: { items: string[] }) {
   return items.length ? <ul className="list-disc space-y-2 pl-5 text-body text-muted">{items.map((item, i) => <li key={i} className="whitespace-pre-line">{item}</li>)}</ul> : <p className="text-body text-subtle">해당 없음</p>;
 }
+function ImprovementFeedback({ assessment }: { assessment: Assessment }) {
+  const feedback = assessment.feedback;
+  // 완료된 세션은 힌트 대신 상세 피드백을 공개한다. 없는 힌트를 "해당 없음"으로 표시하지 않는다.
+  const detailed = feedback.missing !== undefined || feedback.incorrect !== undefined;
+  const items = detailed
+    ? [...(feedback.missing ?? []), ...(feedback.incorrect ?? [])]
+    : feedback.missing_hint ?? [];
+  const needsWork = assessment.state === "partial" || assessment.state === "misconception";
+  const fallback = detailed
+    ? "아직 설명이 충분하지 않은 핵심 요소가 있어요. 자료를 확인하고 다시 학습해보세요."
+    : "아직 설명이 충분하지 않은 핵심 요소가 있어요. 현재 질문에 맞춰 자신의 말로 다시 설명해볼까요?";
+  return <>
+    <p className="text-caption font-bold text-warning">{detailed ? "보완이 필요한 부분" : "생각해볼 부분"}</p>
+    <FeedbackList items={items.length || !needsWork ? items : [fallback]} />
+  </>;
+}
 export function Conversation({ messages, assessments }: { messages: LearningMessage[]; assessments: Assessment[] }) {
   return <div className="space-y-5">{messages.map((message, index) => {
     // 답변 평가 실패 시 평가 없는 답변도 보존된다. 평가 시각 직전의 답변에만 노트를 붙인다.
@@ -27,7 +43,7 @@ export function Conversation({ messages, assessments }: { messages: LearningMess
       {assessment && <div className="mt-3 space-y-3 rounded-control border border-primary-line bg-surface p-4">
         <div className="flex items-center gap-2"><StateBadge state={assessment.state} /><span className="text-body font-bold text-primary-strong">{assessment.score}%</span></div>
         <p className="text-caption font-bold text-success">잘 이해한 부분</p><FeedbackList items={assessment.feedback.correct} />
-        <p className="text-caption font-bold text-warning">생각해볼 부분</p><FeedbackList items={assessment.feedback.missing_hint ?? []} />
+        <ImprovementFeedback assessment={assessment} />
       </div>}
     </div>;
   })}</div>;
