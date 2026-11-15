@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     # asyncpg 접속 문자열 (postgresql+asyncpg://user:password@host:5432/db). 기본값은 두지 않는다.
     database_url: str
     firebase_project_id: str
+    firebase_web_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "FIREBASE_WEB_API_KEY", "NEXT_PUBLIC_FIREBASE_API_KEY", "firebase_web_api_key"
+        ),
+    )
     gcs_bucket: str = ""
     gcs_signer_service_account: str = ""
     cors_origins: Annotated[list[str], NoDecode] = []

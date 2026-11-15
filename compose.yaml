@@ -34,6 +34,7 @@ services:
       CORS_ORIGINS: http://localhost:3000
       # 저장소 루트의 .env 또는 셸 환경변수에서 읽는다. 프론트엔드의 NEXT_PUBLIC_FIREBASE_PROJECT_ID와 같은 값
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_WEB_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:-}
       GCS_BUCKET: ${GCS_BUCKET:-}
       GCS_SIGNER_SERVICE_ACCOUNT: ${GCS_SIGNER_SERVICE_ACCOUNT:-}
       # GCS_BUCKET이 비었을 때 쓰는 에뮬레이터. 백엔드는 컨테이너 주소, 브라우저는 localhost로 올린다

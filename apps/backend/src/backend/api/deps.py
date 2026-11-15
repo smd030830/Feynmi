@@ -1,8 +1,9 @@
 """요청 의존성: DB 세션, 현재 사용자, 인증 조건 (architecture.md 5.2)."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -10,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.auth.account_lookup import check_account
 from backend.auth.firebase import TokenVerifier, VerifiedToken
 from backend.db.models import User
 from backend.domain.enums import UserStatus
@@ -60,7 +62,13 @@ def _bearer_token(request: Request) -> str:
     return token
 
 
-async def _sync_user(db: AsyncSession, token: VerifiedToken, cloud: AccountCloud) -> User:
+async def _sync_user(
+    db: AsyncSession,
+    token: VerifiedToken,
+    cloud: AccountCloud,
+    *,
+    check_user: Callable[[VerifiedToken], None] | None = None,
+) -> User:
     """`users` 행을 만들거나, 이메일·로그인 수단이 바뀌었으면 맞춘다 (5.2-2)."""
     user = await db.scalar(select(User).where(User.firebase_uid == token.uid))
     if user is not None and user.status == UserStatus.DELETING:
@@ -71,7 +79,7 @@ async def _sync_user(db: AsyncSession, token: VerifiedToken, cloud: AccountCloud
         await lock_identity(db, token.uid)
         user = await db.scalar(select(User).where(User.firebase_uid == token.uid))
         if user is None:
-            await asyncio.to_thread(cloud.check_user, token)
+            await asyncio.to_thread(check_user or cloud.check_user, token)
         elif user.status == UserStatus.DELETING:
             raise AppError(409, "account_deleting", "account deletion is in progress")
     provider = token.sign_in_provider.value
@@ -118,8 +126,15 @@ async def get_current_user(
     verify: Annotated[TokenVerifier, Depends(get_token_verifier)],
     cloud: Annotated[AccountCloud, Depends(get_account_cloud)],
 ) -> CurrentUser:
-    token = await asyncio.to_thread(verify, _bearer_token(request))
-    user = await _sync_user(db, token, cloud)
+    id_token = _bearer_token(request)
+    token = await asyncio.to_thread(verify, id_token)
+    api_key = getattr(request.app.state, "firebase_web_api_key", "")
+    check_user = (
+        partial(check_account, id_token=id_token, api_key=api_key)
+        if api_key and isinstance(cloud, GoogleAccountCloud)
+        else cloud.check_user
+    )
+    user = await _sync_user(db, token, cloud, check_user=check_user)
     # 모든 기기에서 로그아웃한 시각 이전에 로그인한 토큰은 거부한다 (5.2-3).
     if user.tokens_revoked_at and token.auth_time < user.tokens_revoked_at:
         raise AppError(401, "token_revoked", "token was issued before sessions were revoked")

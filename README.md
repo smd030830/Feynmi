@@ -83,3 +83,5 @@ group by k.id order by k.material_id, k.ordinal;
 터미널에서는 `apps/frontend`에서 `pnpm backend:start`, `pnpm backend:stop`으로도 실행할 수 있습니다.
 
 운영 배포 절차와 공개 환경 검증 항목은 [배포 문서](docs/deployment.md)를 참고합니다.
+
+일반 로그인·첫 계정 연결은 Firebase Web API 키와 로그인 사용자의 ID 토큰으로 확인합니다. 로컬 compose는 `NEXT_PUBLIC_FIREBASE_API_KEY`를 백엔드에도 전달합니다. 모든 기기 로그아웃·Firebase 계정 삭제·운영 GCS 작업은 별도로 관리자 인증이 필요합니다.

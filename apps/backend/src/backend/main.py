@@ -46,6 +46,7 @@ def create_app(
     app.state.session_factory = make_session_factory(engine)
     # 테스트는 Firebase 없이 검증 함수를 바꿔 끼운다.
     app.state.token_verifier = token_verifier or make_token_verifier(settings.firebase_project_id)
+    app.state.firebase_web_api_key = settings.firebase_web_api_key
     app.state.account_cloud = account_cloud or GoogleAccountCloud(
         settings.firebase_project_id, settings.gcs_bucket, settings.gcs_signer_service_account
     )
