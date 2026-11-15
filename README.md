@@ -81,3 +81,5 @@ from concepts k left join concept_elements e on e.concept_id = k.id
 group by k.id order by k.material_id, k.ordinal;
 ```
 터미널에서는 `apps/frontend`에서 `pnpm backend:start`, `pnpm backend:stop`으로도 실행할 수 있습니다.
+
+운영 배포 절차와 공개 환경 검증 항목은 [배포 문서](docs/deployment.md)를 참고합니다.

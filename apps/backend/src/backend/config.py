@@ -1,8 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     # 진행 상태로 이 시간을 넘긴 자료는 멈춘 것으로 보고 실패 처리한다 (Cloud Tasks 데드라인과 같게)
     analysis_deadline_minutes: int = Field(default=30, ge=1)
+
+    @model_validator(mode="after")
+    def _cloud_tasks_deadline(self) -> Self:
+        if self.queue_mode == "cloud_tasks" and self.analysis_deadline_minutes > 30:
+            raise ValueError("Cloud Tasks analysis deadline must not exceed 30 minutes")
+        return self
 
     @field_validator("cors_origins", mode="before")
     @classmethod
