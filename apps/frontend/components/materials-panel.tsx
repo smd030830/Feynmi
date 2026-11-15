@@ -37,10 +37,12 @@ export function MaterialsPanel({
   projectId,
   projectName,
   onCountChange,
+  onItemsChange,
 }: {
   projectId: string;
   projectName: string;
   onCountChange: (count: number) => void;
+  onItemsChange?: (items: Material[]) => void;
 }) {
   const { me, setMe } = useAccount();
   const [items, setItems] = useState<Material[]>();
@@ -57,10 +59,11 @@ export function MaterialsPanel({
       setItems(items);
       setLoadError(undefined);
       onCountChange(items.length);
+      onItemsChange?.(items);
     } catch (error) {
       setLoadError(error);
     }
-  }, [projectId, onCountChange]);
+  }, [projectId, onCountChange, onItemsChange]);
 
   useEffect(() => {
     void refresh();
@@ -276,6 +279,7 @@ function MaterialRow({
         <p className="text-caption text-subtle">
           {formatSize(m.size_bytes)}
           {m.page_count !== null && ` · ${m.page_count}쪽`}
+          {m.status === "ready" && ` · 개념 ${m.concept_count ?? 0}개`}
         </p>
         {m.status === "failed" && (
           <p className="mt-1 text-caption text-danger">

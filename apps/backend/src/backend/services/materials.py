@@ -12,7 +12,7 @@ from pathlib import PurePath
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.models import Chunk, Material, Project, User
+from backend.db.models import Chunk, Concept, ConceptElement, Material, Project, User
 from backend.domain.enums import FailureCode, FileType, MaterialStatus
 from backend.errors import AppError
 from backend.ingest import MAX_FILE_BYTES
@@ -39,6 +39,8 @@ TITLE_MAX_LENGTH = 200
 class MaterialSummary:
     material: Material
     chunk_count: int
+    concept_count: int = 0
+    element_count: int = 0
 
 
 async def _owned_project(db: AsyncSession, user_id: uuid.UUID, project_id: uuid.UUID) -> Project:
@@ -188,7 +190,18 @@ async def list_materials(
         .group_by(Chunk.material_id)
     )
     counts: dict[uuid.UUID, int] = {mid: n for mid, n in rows}
-    return [MaterialSummary(m, counts.get(m.id, 0)) for m in materials]
+    concept_rows = await db.execute(
+        select(
+            Concept.material_id, func.count(Concept.id.distinct()), func.count(ConceptElement.id)
+        )
+        .outerjoin(ConceptElement, ConceptElement.concept_id == Concept.id)
+        .where(Concept.material_id.in_([m.id for m in materials]))
+        .group_by(Concept.material_id)
+    )
+    grading = {
+        mid: (concept_count, element_count) for mid, concept_count, element_count in concept_rows
+    }
+    return [MaterialSummary(m, counts.get(m.id, 0), *grading.get(m.id, (0, 0))) for m in materials]
 
 
 async def retry_material(db: AsyncSession, user_id: uuid.UUID, material_id: uuid.UUID) -> Material:

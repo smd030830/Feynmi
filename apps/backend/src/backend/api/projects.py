@@ -100,5 +100,5 @@ async def create_project(
 async def get_project(
     project_id: uuid.UUID, current: ProfileUser, db: DbSession
 ) -> ProjectResponse:
-    # 최근 학습 3건(architecture.md 8.1)은 세션 기록(FM-044)에서 추가한다.
+    # 최근 학습 카드는 별도의 기록 조회 결과 중 첫 3건을 재사용한다.
     return _project_response(await projects.get_project(db, current.user.id, project_id))

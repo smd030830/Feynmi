@@ -51,6 +51,8 @@ export type Material = {
   status: MaterialStatus;
   failure_code: string | null;
   chunk_count: number; // DB에 임베딩까지 저장된 조각 수
+  concept_count: number;
+  element_count: number;
   created_at: string;
 };
 

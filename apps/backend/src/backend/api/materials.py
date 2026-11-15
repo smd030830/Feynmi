@@ -38,6 +38,8 @@ class MaterialResponse(BaseModel):
     failure_code: FailureCode | None
     chunk_count: int  # 임베딩까지 저장된 조각 수 (키가 없으면 0)
     created_at: datetime
+    concept_count: int = 0
+    element_count: int = 0
 
 
 class MaterialListResponse(BaseModel):
@@ -60,7 +62,9 @@ class UploadUrlResponse(BaseModel):
     material: MaterialResponse
 
 
-def _response(material: Material, chunk_count: int = 0) -> MaterialResponse:
+def _response(
+    material: Material, chunk_count: int = 0, concept_count: int = 0, element_count: int = 0
+) -> MaterialResponse:
     return MaterialResponse(
         id=material.id,
         title=material.title,
@@ -71,6 +75,8 @@ def _response(material: Material, chunk_count: int = 0) -> MaterialResponse:
         failure_code=FailureCode(material.failure_code) if material.failure_code else None,
         chunk_count=chunk_count,
         created_at=material.created_at,
+        concept_count=concept_count,
+        element_count=element_count,
     )
 
 
@@ -132,7 +138,12 @@ async def list_materials(
 ) -> MaterialListResponse:
     deadline = request.app.state.analysis_deadline_minutes
     summaries = await materials.list_materials(db, current.user.id, project_id, deadline)
-    return MaterialListResponse(items=[_response(s.material, s.chunk_count) for s in summaries])
+    return MaterialListResponse(
+        items=[
+            _response(s.material, s.chunk_count, s.concept_count, s.element_count)
+            for s in summaries
+        ]
+    )
 
 
 @router.post("/materials/{material_id}/retry", status_code=status.HTTP_202_ACCEPTED)
