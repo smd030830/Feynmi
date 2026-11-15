@@ -68,7 +68,7 @@ export function HomeDashboard() {
       {home.notifications.length > 0 && (
         <section aria-label="학습 알림" className="space-y-3">
           {home.notifications.map((notification) => (
-            <div key={notification.kind} className="flex items-center gap-4 rounded-card border border-primary-line bg-primary-soft px-5 py-4">
+            <div key={notification.kind} className="flex items-center gap-4 rounded-card border border-primary-line bg-primary-soft px-5 py-4 max-[600px]:flex-wrap max-[600px]:gap-3 max-[600px]:px-4">
               <Icon name="bell" size={20} className="shrink-0 text-primary" />
               <p className="flex-1 text-body font-semibold text-primary-strong">{notification.message}</p>
               {notification.kind === "review" && notification.concept_id && (
@@ -78,7 +78,7 @@ export function HomeDashboard() {
           ))}
         </section>
       )}
-      <section className="relative flex items-center justify-between overflow-hidden rounded-hero border border-primary-line bg-[linear-gradient(125deg,#eef2ff_0%,#f4f1ff_53%,#effaff_100%)] px-12 py-[38px]">
+      <section className="relative flex items-center justify-between overflow-hidden rounded-hero border border-primary-line bg-[linear-gradient(125deg,#eef2ff_0%,#f4f1ff_53%,#effaff_100%)] px-12 py-[38px] max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-6 max-[600px]:px-5 max-[600px]:py-7">
         <div className="absolute -right-16 -top-20 size-64 rounded-full bg-white/50" aria-hidden />
         <div className="relative">
           <p className="text-eyebrow font-extrabold uppercase text-primary-strong">Feynman Learning</p>
@@ -87,11 +87,11 @@ export function HomeDashboard() {
             <Button className="mt-6" disabled={starting} onClick={() => void begin(recommendation.concept_id)}>{starting ? "학습 준비 중…" : "지금 학습하기"}</Button>
           ) : <Button className="mt-6" onClick={() => setCreating(true)}>새 프로젝트 만들기</Button>}
         </div>
-        <ol className="relative mr-6 flex items-center gap-3" aria-label="학습 순환">
+        <ol className="relative mr-6 flex items-center gap-3 max-[600px]:mr-0 max-[600px]:w-full max-[600px]:justify-between max-[600px]:gap-1" aria-label="학습 순환">
           {cycle.map((step, index) => (
             <li key={step.label} className="flex items-center gap-3">
               <div className="flex flex-col items-center gap-2">
-                <span className={`flex size-14 items-center justify-center rounded-2xl shadow-brand-sm ${step.tone}`}><Icon name={step.icon} size={24} /></span>
+                <span className={`flex size-14 items-center justify-center rounded-2xl shadow-brand-sm max-[600px]:size-11 ${step.tone}`}><Icon name={step.icon} size={24} /></span>
                 <span className="text-micro font-bold text-muted">{step.label}</span>
               </div>
               {index < cycle.length - 1 && <Icon name="arrow" size={16} className="mb-6 text-placeholder" />}
@@ -113,7 +113,7 @@ export function HomeDashboard() {
         <>
           <LearningOverview stats={home.stats} />
           {recommendation && (
-            <section aria-labelledby="recommendation-title" className="flex items-center gap-5 rounded-card border border-primary-line bg-surface p-6">
+            <section aria-labelledby="recommendation-title" className="flex items-center gap-5 rounded-card border border-primary-line bg-surface p-6 max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-3 max-[600px]:p-4">
               <ProjectTile name={recommendation.concept_title} color={color} size="lg" />
               <div className="min-w-0 flex-1">
                 <p id="recommendation-title" className="text-caption font-bold text-primary-strong">다음 학습 추천</p>
@@ -135,7 +135,7 @@ export function HomeDashboard() {
               <h2 id="projects-title" className="text-heading font-bold text-text">나의 프로젝트</h2>
               <Link href="/projects" className="text-caption font-semibold text-primary-strong">전체 보기</Link>
             </div>
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[600px]:grid-cols-1">
               {home.projects.map((project) => <ProjectCard key={project.id} project={project} />)}
               <NewProjectCard onClick={() => setCreating(true)} />
             </div>
