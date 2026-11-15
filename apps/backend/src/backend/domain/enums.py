@@ -52,6 +52,7 @@ class FailureCode(StrEnum):
     NO_EXTRACTABLE_TEXT = "no_extractable_text"
     CORRUPTED_FILE = "corrupted_file"
     LLM_FAILED = "llm_failed"
+    AI_UNAVAILABLE = "ai_unavailable"
     INTERNAL_ERROR = "internal_error"
 
 

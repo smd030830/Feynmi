@@ -2,7 +2,7 @@
 
 원본 → 쪽별 글자(OCR 포함) → 청크 → 임베딩 → chunks 저장
 → `generating_concepts` 개념 추출(FM-022) → `ready`.
-AI 설정(키)이 없으면 임베딩과 개념 추출을 건너뛴다(글자 추출까지만 확인하는 로컬 시연).
+AI 설정이 없으면 재시도 가능한 실패로 표시하며, 개념이 없는 자료를 완료 처리하지 않는다.
 """
 
 import asyncio
@@ -88,6 +88,11 @@ async def analyze_material(
                 data = await asyncio.to_thread(storage.load, material.gcs_path)
                 pages = await read_material(data, material.file_type, ocr_factory(image_ai))
                 material.page_count = len(pages)
+                if provider is None:
+                    await _set_status(
+                        db, material, MaterialStatus.FAILED, FailureCode.AI_UNAVAILABLE
+                    )
+                    return
                 # 조각에는 매 쪽 반복되는 머리글·바닥글을 넣지 않는다
                 # (글 문서의 쪽·구역에는 머리글이 없다)
                 if has_real_pages(material.file_type):

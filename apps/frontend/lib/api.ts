@@ -106,6 +106,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
   no_extractable_text: "글자를 찾지 못했어요. 글자가 보이는 자료인지 확인해주세요.",
   corrupted_file: "파일을 열 수 없어요. 손상되었거나 암호가 걸린 파일일 수 있어요.",
   llm_failed: "AI 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
+  ai_unavailable: "현재 AI 분석을 사용할 수 없어요. 서비스 연결이 준비된 뒤 다시 시도해주세요.",
   internal_error: "분석 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
 };
 
