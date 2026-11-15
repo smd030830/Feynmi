@@ -421,6 +421,7 @@ sequenceDiagram
 - `GET /home` 한 번으로 학습 개요, 알림, 다음 학습 추천, 프로젝트 카드, 취약 개념을 모두 반환한다. 조회 전에 7.3의 지연 정리를 수행한다.
 - 프로젝트 카드의 상태 분포와 프로젝트 이해도는 `concepts`를 프로젝트별로 `GROUP BY`해서 계산한다.
 - 취약 개념 정렬과 추천은 `domain/ranking.py`가 PRD FR-4.3, FR-3.4대로 계산한다. 결과 화면 추천은 방금 학습한 개념을 뺀다.
+- FM-043 학습 개요는 `GET /me/stats`로 먼저 제공한다. 홈 통합 조회를 구현할 때도 같은 계산 함수를 사용한다.
 - 학습 통계는 `domain/stats.py`가 계산한다. 입력은 사용자의 판정 시각 목록(`assessments.created_at`을 `sessions.user_id`로 거른 것)과 `concepts.first_assessed_at`이다. 날짜는 `Asia/Seoul` 기준, 한 주는 월~일이다. 판정 시각만 쓰므로 별도 통계 테이블을 두지 않는다.
 - 알림 조건(FR-4.8)도 같은 모듈에서 계산하며, `user_settings.notifications_enabled`가 꺼져 있으면 비운다.
 - 사이드바 주간 위젯용으로 `GET /me/summary`(닉네임, 아바타 URL, 주간 7칸, 목표 일수)를 따로 둔다. 모든 화면에서 호출되므로 가볍게 유지한다.

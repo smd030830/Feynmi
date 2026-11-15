@@ -220,6 +220,16 @@ export function cleanupSessions() {
 }
 
 export type WeeklySummary = { weekly_goal_days: number; study_days: boolean[] };
+export type LearningStats = {
+  overall_score: number | null;
+  learned_concepts: number;
+  new_concepts_this_week: number;
+  study_days_last_30: number;
+  consecutive_study_days: number;
+};
+export function getLearningStats() {
+  return apiFetch<LearningStats>("/me/stats");
+}
 export function getWeeklySummary() {
   return apiFetch<WeeklySummary>("/me/summary");
 }

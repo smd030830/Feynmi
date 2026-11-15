@@ -3,6 +3,7 @@ import { CurrentNickname } from "@/components/auth-guard";
 import { GreetingEyebrow, TodayLabel } from "@/components/greeting";
 import { Icon, type IconName } from "@/components/icon";
 import { NewProjectButton } from "@/components/new-project-modal";
+import { LearningOverview } from "@/components/learning-overview";
 import { HomeSessionCleanup } from "@/components/home-session-cleanup";
 
 export const metadata: Metadata = { title: "홈 · Feynmi" };
@@ -12,12 +13,6 @@ export const metadata: Metadata = { title: "홈 · Feynmi" };
 export const instant = false;
 
 // 빈 데이터. 프로젝트·세션 API(FM-024, FM-030~)가 생기면 실제 값으로 교체한다.
-
-const stats: { icon: IconName; label: string; value: string; unit?: string; tone: string }[] = [
-  { icon: "target", label: "전체 이해도", value: "-", tone: "bg-[#f0fdf4] text-[#16a34a]" },
-  { icon: "book", label: "학습 개념", value: "0", unit: "개", tone: "bg-[#eef2ff] text-[#6366f1]" },
-  { icon: "clock", label: "학습 일수", value: "0", unit: "일", tone: "bg-[#f5f3ff] text-[#8b5cf6]" },
-];
 
 const cycle: { icon: IconName; label: string; tone: string }[] = [
   { icon: "book", label: "개념", tone: "bg-[#eef2ff] text-[#6366f1]" },
@@ -72,38 +67,7 @@ export default function HomePage() {
         </ol>
       </section>
 
-      {/* 학습 개요 (FR-4.9) */}
-      <section aria-labelledby="overview-title">
-        <div className="mb-4 flex items-baseline justify-between">
-          <h2 id="overview-title" className="text-heading font-bold text-text">
-            학습 개요
-          </h2>
-          <span className="text-caption text-subtle">지난 30일 기준</span>
-        </div>
-        <div className="grid grid-cols-3 gap-3.5 max-[600px]:grid-cols-1">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="flex items-center gap-3.5 rounded-card border border-line bg-surface p-5"
-            >
-              <span
-                className={`flex size-[38px] shrink-0 items-center justify-center rounded-[10px] ${stat.tone}`}
-              >
-                <Icon name={stat.icon} size={20} />
-              </span>
-              <div>
-                <p className="text-caption text-subtle">{stat.label}</p>
-                <p className="text-title-2 font-bold text-text">
-                  {stat.value}
-                  {stat.unit && (
-                    <span className="ml-0.5 text-body font-semibold text-subtle">{stat.unit}</span>
-                  )}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <LearningOverview />
 
       {/* 프로젝트가 없을 때 Empty state (design-system 9.7) */}
       <section
