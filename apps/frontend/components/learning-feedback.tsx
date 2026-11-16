@@ -46,14 +46,14 @@ export function Conversation({ messages, assessments }: { messages: LearningMess
       return Date.parse(item.created_at) >= Date.parse(message.created_at) && (!next || Date.parse(item.created_at) < Date.parse(next.created_at));
     }) : undefined;
     const answerIndex = messages.slice(0, index + 1).filter((item) => item.role === "answer").length;
-    return <div key={message.id} className={message.role === "answer" ? "ml-8" : "mr-8"}>
+    return <div key={message.id} className={message.role === "answer" ? "ml-2 sm:ml-8" : "mr-2 sm:mr-8"}>
       <p className="mb-2 text-caption font-bold text-subtle">
         {message.role === "question" ? "AI 질문" : `나의 설명 ${answerIndex}`}
         {message.role === "answer" && message.confidence && (
           <span className="ml-2 font-normal">· 답변 확신도 {confidenceLabels[message.confidence]}</span>
         )}
       </p>
-      <div className={`whitespace-pre-wrap rounded-card p-5 text-body-lg ${message.role === "answer" ? "bg-primary-soft text-text" : "border border-line bg-surface text-muted"}`}>{message.text}</div>
+      <div className={`min-w-0 whitespace-pre-wrap break-words rounded-card p-4 text-body-lg sm:p-5 ${message.role === "answer" ? "bg-primary-soft text-text" : "border border-line bg-surface text-muted"}`}>{message.text}</div>
       {assessment && <div className="mt-3 space-y-3 rounded-control border border-primary-line bg-surface p-4">
         <div className="flex items-center gap-2"><StateBadge state={assessment.state} /><span className="text-body font-bold text-primary-strong">{assessment.score}%</span></div>
         <ImprovementFeedback assessment={assessment} />
