@@ -348,7 +348,7 @@ async def test_answer_confidence_records_metadata_without_exposing_it_to_evaluat
     assert "confidence" not in json.dumps(setup.provider.inputs)
 
 
-async def test_four_assessments_privacy_cumulative_context_and_result(setup: Setup) -> None:
+async def test_session_continues_past_three_followups_until_full_score(setup: Setup) -> None:
     listing = await setup.client.get(f"{URL}/projects/{setup.project_id}/concepts")
     assert len(listing.json()["items"]) == 2
     sid = await start(setup)
@@ -357,34 +357,38 @@ async def test_four_assessments_privacy_cumulative_context_and_result(setup: Set
     assert "1쪽" in view["messages"][0]["text"]
     assert "프로세스" in view["messages"][0]["text"]
     assert not setup.provider.inputs
-    for attempt in range(4):
+    for attempt in range(5):
         response = await answer(setup, sid, f"설명 {attempt}")
         assert response.status_code == 200, response.text
         body = response.json()
-        if attempt < 3:
-            assert body["status"] == "in_progress"
-            assert body["followups_used"] == attempt + 1
-            assert "result-only" not in response.text
-            assert "missing" not in body["assessments"][-1]["feedback"]
-        else:
-            assert body["status"] == "completed"
-            assert body["end_reason"] == "max_followups"
+        assert body["status"] == "in_progress"
+        assert body["followups_used"] == attempt + 1
+        assert body["followup_question"]
+        assert body["assessments"][-1]["score"] == 50
+        assert "result-only" not in response.text
+        assert "missing" not in body["assessments"][-1]["feedback"]
+    assert (await setup.client.get(f"{URL}/sessions/{sid}/result")).status_code == 409
+    setup.provider.verdict = Verdict.MET
+    response = await answer(setup, sid, "핵심 요소를 모두 설명")
+    assert response.status_code == 200, response.text
+    assert response.json()["end_reason"] == "understood"
     inputs = setup.provider.inputs
     assert inputs[-1]["question_depth"] == "deep"
-    assert len([m for m in inputs[-1]["messages"] if m["role"] == "answer"]) == 4
-    assert len([m for m in inputs[-1]["messages"] if m["role"] == "question"]) == 4
+    assert len([m for m in inputs[-1]["messages"] if m["role"] == "answer"]) == 6
+    assert len([m for m in inputs[-1]["messages"] if m["role"] == "question"]) == 6
     result = await setup.client.get(f"{URL}/sessions/{sid}/result")
     assert result.status_code == 200
     body = result.json()
-    assert body["score_change"] == 0
-    assert body["remaining_core_count"] == 1
+    assert body["score_change"] == 50
+    assert body["remaining_core_count"] == 0
     assert body["recommendation"]["concept_id"] == str(setup.next_concept_id)
-    assert body["assessments"][-1]["feedback"]["supplement"] == "result-only supplement"
+    assert body["assessments"][0]["feedback"]["supplement"] == "result-only supplement"
+    assert body["assessments"][-1]["feedback"]["supplement"] == ""
     assert (await answer(setup, sid)).status_code == 409
     concept = await setup.db.get(Concept, setup.concept_id)
     assert concept is not None
     await setup.db.refresh(concept)
-    assert concept.score == 50
+    assert concept.score == 100
 
 
 async def test_understood_ends_immediately_and_relearning_uses_new_context(setup: Setup) -> None:

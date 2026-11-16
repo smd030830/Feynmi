@@ -39,7 +39,7 @@ from backend.domain.enums import (
 )
 from backend.domain.ranking import RankedConcept, weakness_key
 from backend.domain.score_rules import compute_concept_score
-from backend.domain.session_rules import MAX_FOLLOWUPS, completion_reason
+from backend.domain.session_rules import completion_reason
 from backend.domain.state_rules import compute_concept_state
 from backend.errors import AppError
 from backend.llm import LLMProvider
@@ -509,7 +509,6 @@ async def _session_view(
         else None,
     }
     if session.status == SessionStatus.IN_PROGRESS:
-        view["followups_remaining"] = MAX_FOLLOWUPS - session.followups_used
         view["followup_question"] = (
             messages[-1].text if messages and messages[-1].role == MessageRole.QUESTION else None
         )
@@ -608,7 +607,6 @@ async def submit_answer(
     )
     # Snapshot plain data before releasing the transaction; never fetch lazy ORM state in API calls.
     concept_id, project_id = concept.id, material.project_id
-    used = session.followups_used
     answers = [m.text for m in messages if m.role == MessageRole.ANSWER]
     evidence_ids = {i for e in elements for i in e.evidence_chunk_ids}
     evidence_ids.update(i for m in misconceptions for i in m.evidence_chunk_ids)
@@ -675,7 +673,10 @@ async def submit_answer(
                 state = compute_concept_state(True, pairs)
                 if state != ConceptState.UNDERSTOOD and not output.feedback.missing_hint:
                     raise ValueError("an unfinished concept requires a brief explanation")
-                if completion_reason(state, used) is None and not output.followup_question:
+                if (
+                    completion_reason(compute_concept_score(pairs)) is None
+                    and not output.followup_question
+                ):
                     raise ValueError("an unfinished assessment requires a followup question")
 
             output = await provider.generate_structured(
@@ -760,7 +761,7 @@ async def submit_answer(
         concept.last_assessed_at = assessment.created_at
         if concept.first_assessed_at is None:
             concept.first_assessed_at = assessment.created_at
-        reason = completion_reason(state, used)
+        reason = completion_reason(score)
         if reason is not None:
             session.status = SessionStatus.COMPLETED
             session.end_reason = reason

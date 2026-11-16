@@ -387,12 +387,9 @@ sequenceDiagram
 
 **세션 전이** (`domain/session_rules.py`)
 
-평가가 하나 끝날 때마다 다음 순서로 판단한다.
-1. 산출 상태가 `understood`이면 `completed`(종료 사유 `understood`)로 바꾼다.
-2. 아니고 `followups_used`가 PRD FR-2.4의 상한에 도달했으면 `completed`(종료 사유 `max_followups`)로 바꾼다.
-3. 둘 다 아니면 `followup_question`을 `question` 메시지로 저장하고 `followups_used`를 1 올린다. 세션은 `in_progress`로 둔다.
-
-이렇게 하면 판정은 최대 "최초 1회 + 재답변 상한"회가 된다 (FR-2.4).
+평가가 끝나면 이해도 점수로 완료 여부를 판단한다 (FR-2.4).
+1. 점수가 100이면 `completed`(종료 사유 `understood`)로 바꾼다.
+2. 점수가 100 미만이면 `followup_question`을 `question` 메시지로 저장하고 `followups_used`를 1 올린다. 세션은 `in_progress`로 둔다.
 
 **개념 상태 반영**: 평가가 저장될 때마다 같은 트랜잭션에서 `concepts.state`, `concepts.score`, `concepts.last_assessed_at`을 그 평가의 값으로 갱신한다. `concepts.first_assessed_at`은 비어 있을 때만 채운다(학습 통계의 "이번 주 처음 판정받은 개념"). 평가가 저장된 세션은 항상 그 개념의 가장 최근 세션이므로 PRD 6.2의 "가장 최근 세션의 마지막 판정"과 일치한다. 평가가 하나도 없는 세션은 상태를 바꾸지 않는다.
 
@@ -506,7 +503,7 @@ sequenceDiagram
 | (a) `correct` | O | O | O |
 | (b) `missing_hint` | O | — | O |
 | (b) `missing`, (c) `incorrect`, (d) `supplement`, `summary_points` | **응답에서 제외** | O | **응답에서 제외** |
-| `followup_question`, `followups_remaining` | O | — | — |
+| `followup_question` | O | — | — |
 
 - 진행 중에도 판정마다 개념 상태를 보여준다(FR-2.3). (c)(d)와 상세 (b)는 `completed`일 때만 내려보낸다(FR-3.3).
 - 중단된 세션에는 종료 요약이 없다(PRD 6.2). 따라서 API도 진행 중과 같은 범위로만 공개한다.

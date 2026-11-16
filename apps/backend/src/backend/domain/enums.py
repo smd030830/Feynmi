@@ -83,7 +83,7 @@ class SessionStatus(StrEnum):
 
 class EndReason(StrEnum):
     UNDERSTOOD = "understood"
-    MAX_FOLLOWUPS = "max_followups"
+    MAX_FOLLOWUPS = "max_followups"  # 이전 학습 기록의 종료 사유
     USER_EXIT = "user_exit"
     SUPERSEDED = "superseded"
     STALE = "stale"

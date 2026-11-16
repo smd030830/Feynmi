@@ -11,7 +11,6 @@ import { getFirebaseAuth } from "@/lib/firebase";
 import { useSpeechDictation } from "@/lib/use-speech-dictation";
 import { useStartLearning } from "@/lib/use-start-learning";
 
-const steps = ["개념 설명", "추가 질문 1", "추가 질문 2", "추가 질문 3", "정리"];
 const verdictLabels = { met: "충족", partial: "부분", missing: "누락", contradicted: "모순" };
 const confidenceOptions = ["high", "uncertain", "low"] as const;
 
@@ -137,9 +136,9 @@ export function SessionView() {
 
   return <div className="space-y-7">
     <div className="flex items-center justify-between"><Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>학습 종료</Button>}</div>
-    <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="text-caption text-subtle">{ended ? "중단된 학습" : `추가 질문 ${Math.max(0, 3 - session.followups_used)}회 남음`}</span></header>
+    <header className="flex items-end justify-between gap-4"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="shrink-0 text-caption text-subtle">{ended ? "중단된 학습" : "이해도 100%에서 완료"}</span></header>
     {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되어 이 개념을 다시 학습할 수 없어요. 당시 설명과 피드백은 아래에서 볼 수 있어요.</p>}
-    {!ended && <ol className="flex rounded-card border border-line bg-surface p-4" aria-label="학습 단계">{steps.map((step, i) => <li key={step} aria-current={i === session.followups_used ? "step" : undefined} className={`flex-1 text-center text-caption font-bold ${i === session.followups_used ? "text-primary-strong" : "text-subtle"}`}><span className={`mx-auto mb-2 flex size-7 items-center justify-center rounded-full ${i <= session.followups_used ? "bg-primary-soft text-primary-strong" : "bg-canvas"}`}>{i + 1}</span>{step}</li>)}</ol>}
+    {!ended && <p aria-live="polite" className="text-caption font-bold text-primary-strong">{session.followups_used > 0 ? `추가 질문 ${session.followups_used}` : "개념 설명"}</p>}
     {(error || startError) && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error || startError}</p>}
     <div className={ended ? "" : "grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-6"}>
       <section className="min-w-0 space-y-6"><div className="flex justify-between"><h2 className="text-heading font-bold">{ended ? "중단된 학습의 대화" : "설명하며 이해하기"}</h2>{pending && <span role="status" className="text-caption text-primary-strong">대화 분석 중…</span>}</div>

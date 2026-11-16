@@ -46,11 +46,10 @@ def test_averages_round_up_exclude_unlearned_and_reject_missing_core() -> None:
         compute_concept_state(True, [])
 
 
-def test_completion_limits_and_understood_priority() -> None:
-    for used in range(3):
-        assert completion_reason(S.PARTIAL, used) is None
-    assert completion_reason(S.PARTIAL, 3) == EndReason.MAX_FOLLOWUPS
-    assert completion_reason(S.UNDERSTOOD, 3) == EndReason.UNDERSTOOD
+def test_completion_requires_a_full_score() -> None:
+    assert completion_reason(0) is None
+    assert completion_reason(99) is None
+    assert completion_reason(100) == EndReason.UNDERSTOOD
 
 
 def test_ranking_state_recency_and_unlearned_ordinal() -> None:
