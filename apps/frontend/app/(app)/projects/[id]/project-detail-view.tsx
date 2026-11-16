@@ -213,14 +213,14 @@ export function ProjectDetailView() {
 
         <div role="tabpanel" className="pt-6">
           {tab === "concepts" && (
-            <div className="grid grid-cols-[minmax(0,1fr)_280px] items-start gap-6">
+            <div className="grid grid-cols-[minmax(0,1fr)_280px] items-start gap-6 max-[1024px]:grid-cols-1">
               <section aria-labelledby="concepts-title" className="min-w-0 space-y-4">
                 <h2 id="concepts-title" className="text-heading font-bold text-text">개념 이해도</h2>
                 {busyCount > 0 && <p role="status" className="rounded-control bg-primary-soft p-4 text-body font-semibold text-primary-strong">자료 {busyCount}개 분석 중 · 완료되면 개념 목록이 갱신돼요.</p>}
                 {refreshError && <p role="alert" className="text-caption text-danger">{refreshError}</p>}
                 {concepts.length > 0 ? concepts.map((concept) => (
-                  <button key={concept.id} type="button" disabled={starting} onClick={() => void begin(concept.id)} className="flex w-full items-center gap-4 rounded-card border border-line bg-surface p-5 text-left hover:border-primary-line disabled:opacity-60">
-                    <span className="min-w-0 flex-1">
+                  <button key={concept.id} type="button" disabled={starting} onClick={() => void begin(concept.id)} className="flex w-full flex-wrap items-center gap-4 rounded-card border border-line bg-surface p-5 text-left hover:border-primary-line disabled:opacity-60 max-[600px]:gap-3 max-[600px]:p-4">
+                    <span className="min-w-0 flex-1 max-[600px]:basis-full">
                       <span className="block text-caption text-subtle">{concept.material_title}</span>
                       <span role="heading" aria-level={3} className="mt-1 block text-subheading font-bold">{concept.title}</span>
                       <span className="mt-1 block text-caption text-muted">{concept.description}</span>
