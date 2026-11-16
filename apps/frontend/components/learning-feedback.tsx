@@ -1,4 +1,10 @@
-import type { Assessment, ConceptState, LearningMessage } from "@/lib/api";
+import type { AnswerConfidence, Assessment, ConceptState, LearningMessage } from "@/lib/api";
+
+export const confidenceLabels: Record<AnswerConfidence, string> = {
+  high: "확실해요",
+  uncertain: "조금 헷갈려요",
+  low: "잘 모르겠어요",
+};
 
 export const stateLabels: Record<ConceptState, string> = {
   understood: "이해", partial: "부분 이해", misconception: "오개념", not_studied: "미학습",
@@ -35,12 +41,18 @@ export function Conversation({ messages, assessments }: { messages: LearningMess
   return <div className="space-y-5">{messages.map((message, index) => {
     // 답변 평가 실패 시 평가 없는 답변도 보존된다. 평가 시각 직전의 답변에만 노트를 붙인다.
     const assessment = message.role === "answer" ? assessments.find((item) => {
+      if (item.answer_message_id) return item.answer_message_id === message.id;
       const next = messages.slice(index + 1).find((m) => m.role === "answer");
       return Date.parse(item.created_at) >= Date.parse(message.created_at) && (!next || Date.parse(item.created_at) < Date.parse(next.created_at));
     }) : undefined;
     const answerIndex = messages.slice(0, index + 1).filter((item) => item.role === "answer").length;
     return <div key={message.id} className={message.role === "answer" ? "ml-8" : "mr-8"}>
-      <p className="mb-2 text-caption font-bold text-subtle">{message.role === "question" ? "AI 질문" : `나의 설명 ${answerIndex}`}</p>
+      <p className="mb-2 text-caption font-bold text-subtle">
+        {message.role === "question" ? "AI 질문" : `나의 설명 ${answerIndex}`}
+        {message.role === "answer" && message.confidence && (
+          <span className="ml-2 font-normal">· 답변 확신도 {confidenceLabels[message.confidence]}</span>
+        )}
+      </p>
       <div className={`whitespace-pre-wrap rounded-card p-5 text-body-lg ${message.role === "answer" ? "bg-primary-soft text-text" : "border border-line bg-surface text-muted"}`}>{message.text}</div>
       {assessment && <div className="mt-3 space-y-3 rounded-control border border-primary-line bg-surface p-4">
         <div className="flex items-center gap-2"><StateBadge state={assessment.state} /><span className="text-body font-bold text-primary-strong">{assessment.score}%</span></div>

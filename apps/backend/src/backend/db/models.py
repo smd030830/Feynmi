@@ -31,6 +31,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from backend.domain.enums import (
+    AnswerConfidence,
     ConceptState,
     EndReason,
     FailureCode,
@@ -278,6 +279,10 @@ class Message(Base):
     __table_args__ = (
         UniqueConstraint("session_id", "seq"),
         _enum_check("role", MessageRole),
+        CheckConstraint(
+            f"confidence IS NULL OR (role = 'answer' AND {_in('confidence', AnswerConfidence)})",
+            name="confidence",
+        ),
     )
 
     id: Mapped[uuid.UUID] = _pk()
@@ -285,6 +290,7 @@ class Message(Base):
     seq: Mapped[int]
     role: Mapped[str] = mapped_column(Text)
     text: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now()
 
 
@@ -302,6 +308,9 @@ class Assessment(Base):
 
     id: Mapped[uuid.UUID] = _pk()
     session_id: Mapped[uuid.UUID] = _fk("sessions.id")
+    answer_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("messages.id", ondelete="CASCADE")
+    )
     seq: Mapped[int]
     state: Mapped[str] = mapped_column(Text)
     score: Mapped[int]

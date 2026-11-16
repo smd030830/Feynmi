@@ -4,14 +4,15 @@ import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, buttonStyles } from "@/components/button";
-import { Conversation, StateBadge } from "@/components/learning-feedback";
+import { confidenceLabels, Conversation, StateBadge } from "@/components/learning-feedback";
 import { Modal } from "@/components/modal";
-import { abortSession, abortSessionOnExit, apiErrorMessage, getSession, startSession, submitAnswer, type LearningSession } from "@/lib/api";
+import { abortSession, abortSessionOnExit, apiErrorMessage, getSession, startSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useSpeechDictation } from "@/lib/use-speech-dictation";
 
 const steps = ["개념 설명", "추가 질문 1", "추가 질문 2", "추가 질문 3", "정리"];
 const verdictLabels = { met: "충족", partial: "부분", missing: "누락", contradicted: "모순" };
+const confidenceOptions = ["high", "uncertain", "low"] as const;
 
 export function SessionView() {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +21,7 @@ export function SessionView() {
   const [loaded, setLoaded] = useState<{ id: string; session?: LearningSession; error?: string }>();
   const [attempt, setAttempt] = useState(0);
   const [answer, setAnswer] = useState("");
+  const [confidenceDraft, setConfidenceDraft] = useState<{ id: string; value: AnswerConfidence }>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
@@ -101,8 +103,9 @@ export function SessionView() {
     live.current.pending = true;
     setPending(true); setError("");
     try {
-      const updated = await submitAnswer(id, answer.trim());
-      setLoaded({ id, session: updated }); setAnswer("");
+      const confidence = confidenceDraft?.id === id ? confidenceDraft.value : undefined;
+      const updated = await submitAnswer(id, answer.trim(), confidence);
+      setLoaded({ id, session: updated }); setAnswer(""); setConfidenceDraft(undefined);
     } catch (err) {
       setError(apiErrorMessage(err));
       // 실패한 답변도 서버에 보관될 수 있으므로 대화를 다시 읽는다.
@@ -143,6 +146,33 @@ export function SessionView() {
         {!ended ? <form onSubmit={send} className="sticky bottom-5 rounded-card border border-primary-line bg-surface p-5 shadow-brand">
           <p className="text-caption font-bold text-primary-strong">현재 질문</p><p className="mt-1 text-body text-muted">{currentQuestion}</p>
           <label htmlFor="learner-answer" className="sr-only">나의 설명</label><textarea id="learner-answer" value={answer} onChange={(e) => setAnswer(e.target.value)} disabled={pending} placeholder="내 말로 설명해보세요..." className="mt-4 min-h-36 w-full resize-y rounded-control border border-line p-4 text-body-lg disabled:opacity-60" onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void send(); } }} />
+          <fieldset disabled={pending} className="mt-3 disabled:opacity-60">
+            <legend className="text-caption font-bold text-muted">
+              답변 확신도 <span className="font-normal text-subtle">(선택)</span>
+            </legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {confidenceOptions.map((value) => (
+                <label key={value} className="cursor-pointer">
+                  <input
+                    type="radio"
+                    name="answer-confidence"
+                    value={value}
+                    checked={confidenceDraft?.id === id && confidenceDraft.value === value}
+                    onChange={() => setConfidenceDraft({ id, value })}
+                    className="peer sr-only"
+                  />
+                  <span className="inline-block rounded-control border border-line px-3 py-1.5 text-caption font-semibold text-muted peer-checked:border-primary-line peer-checked:bg-primary-soft peer-checked:text-primary-strong peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary">
+                    {confidenceLabels[value]}
+                  </span>
+                </label>
+              ))}
+              {confidenceDraft?.id === id && (
+                <button type="button" className="px-2 text-caption text-subtle underline" onClick={() => setConfidenceDraft(undefined)}>
+                  선택 지우기
+                </button>
+              )}
+            </div>
+          </fieldset>
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-micro text-subtle">학습자료를 보지 않고 설명해보세요<br />{answer.length}자 · Ctrl+Enter</p>
             <div className="flex items-center gap-2">

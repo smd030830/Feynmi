@@ -92,3 +92,9 @@ class EndReason(StrEnum):
 class MessageRole(StrEnum):
     ANSWER = "answer"
     QUESTION = "question"
+
+
+class AnswerConfidence(StrEnum):
+    HIGH = "high"
+    UNCERTAIN = "uncertain"
+    LOW = "low"

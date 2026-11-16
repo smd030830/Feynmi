@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, StringConstraints, ValidationError
 
 from backend.api.deps import CurrentUser, DbSession, require_profile
+from backend.domain.enums import AnswerConfidence
 from backend.errors import AppError
 from backend.llm import LLMProvider
 from backend.llm.provider import openai_provider
@@ -37,6 +38,7 @@ async def get_evaluator() -> AsyncIterator[Evaluator]:
 
 class AnswerInput(BaseModel):
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    confidence: AnswerConfidence | None = None
 
 
 @router.get("/projects/{project_id}/concepts")
@@ -78,6 +80,7 @@ async def submit_answer(
         session_id,
         body.text,
         evaluator.provider,
+        confidence=body.confidence,
         model_id=evaluator.model_id,
         lease_seconds=evaluator.lease_seconds,
     )
