@@ -18,9 +18,10 @@ export function GoogleLoginButton() {
     try {
       // 로그인되면 GuestOnly가 홈으로 보낸다
       await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider());
-      await recordLogin().catch(() => undefined);
+      void recordLogin().catch(() => undefined);
     } catch (err) {
       setError(authErrorMessage(err) ?? "");
+    } finally {
       setPending(false);
     }
   }

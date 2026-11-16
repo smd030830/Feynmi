@@ -6,9 +6,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { confidenceLabels, Conversation, StateBadge } from "@/components/learning-feedback";
 import { Modal } from "@/components/modal";
-import { abortSession, abortSessionOnExit, apiErrorMessage, getSession, startSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
+import { abortSession, abortSessionOnExit, apiErrorMessage, getSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useSpeechDictation } from "@/lib/use-speech-dictation";
+import { useStartLearning } from "@/lib/use-start-learning";
 
 const steps = ["개념 설명", "추가 질문 1", "추가 질문 2", "추가 질문 3", "정리"];
 const verdictLabels = { met: "충족", partial: "부분", missing: "누락", contradicted: "모순" };
@@ -25,6 +26,7 @@ export function SessionView() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
+  const { begin, starting, startError } = useStartLearning();
   const { state: speechState, message: speechMessage, start: startSpeech, stop: stopSpeech, abort: abortSpeech, isActive: speechIsActive } =
     useSpeechDictation(id, (text) => setAnswer((draft) => draft && !/\s$/.test(draft) ? `${draft} ${text}` : draft + text));
   const live = useRef<{ session?: LearningSession; pending: boolean; token: string }>({ pending: false, token: "" });
@@ -122,10 +124,8 @@ export function SessionView() {
   }
   async function restart() {
     if (!session || live.current.pending) return;
-    live.current.pending = true;
-    setPending(true); setError("");
-    try { const next = await startSession(session.concept_id); router.push(`/sessions/${next.id}`); }
-    catch (err) { live.current.pending = false; setError(apiErrorMessage(err)); setPending(false); }
+    setError("");
+    await begin(session.concept_id);
   }
 
   if (loaded?.id === id && loaded.error) return <div role="alert" className="rounded-card border border-line bg-surface p-8"><p>{loaded.error}</p><Button className="mt-4" onClick={() => setAttempt((n) => n + 1)}>다시 시도</Button></div>;
@@ -139,7 +139,7 @@ export function SessionView() {
     <div className="flex items-center justify-between"><Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>학습 종료</Button>}</div>
     <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="text-caption text-subtle">{ended ? "중단된 학습" : `추가 질문 ${Math.max(0, 3 - session.followups_used)}회 남음`}</span></header>
     {!ended && <ol className="flex rounded-card border border-line bg-surface p-4" aria-label="학습 단계">{steps.map((step, i) => <li key={step} aria-current={i === session.followups_used ? "step" : undefined} className={`flex-1 text-center text-caption font-bold ${i === session.followups_used ? "text-primary-strong" : "text-subtle"}`}><span className={`mx-auto mb-2 flex size-7 items-center justify-center rounded-full ${i <= session.followups_used ? "bg-primary-soft text-primary-strong" : "bg-canvas"}`}>{i + 1}</span>{step}</li>)}</ol>}
-    {error && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error}</p>}
+    {(error || startError) && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error || startError}</p>}
     <div className={ended ? "" : "grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-6"}>
       <section className="min-w-0 space-y-6"><div className="flex justify-between"><h2 className="text-heading font-bold">{ended ? "중단된 학습의 대화" : "설명하며 이해하기"}</h2>{pending && <span role="status" className="text-caption text-primary-strong">대화 분석 중…</span>}</div>
         <Conversation messages={session.messages} assessments={session.assessments} />
@@ -192,7 +192,7 @@ export function SessionView() {
             {speechMessage || (speechState === "listening" ? "듣고 있어요. 설명을 마치면 음성 입력을 중지해주세요." : speechState === "stopping" ? "마지막 음성을 텍스트로 바꾸고 있어요." : "")}
           </p>
           <p className="mt-3 text-micro text-subtle">정답을 맞히려 하지 않아도 괜찮아요. 지금 이해한 만큼 자신의 언어로 설명해주세요.</p>
-        </form> : <div className="flex justify-end"><Button disabled={pending} onClick={restart}>이 개념 다시 학습하기</Button></div>}
+        </form> : <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이 개념 다시 학습하기</Button></div>}
       </section>
       {!ended && <aside className="min-w-0 space-y-5 rounded-card border border-line bg-surface p-4 sm:p-5 lg:sticky lg:top-24"><div><p className="text-eyebrow font-bold text-primary-strong">실시간 분석</p><h2 className="mt-2 text-subheading font-bold">현재 이해 상태</h2><div className="mt-3"><StateBadge state={latest?.state ?? "not_studied"} /></div></div>
         <ul className="space-y-4">{latest?.elements.map((element) => <li key={element.element_id} className="text-caption"><p className="font-semibold text-muted">{element.text}</p><p className="mt-1 text-subtle">{element.importance === "core" ? "핵심" : "보조"} · {pending ? "이해 확인 중" : verdictLabels[element.verdict]}</p>{element.learner_quote && <blockquote className="mt-2 border-l-2 border-primary-line pl-2 text-subtle">“{element.learner_quote}”</blockquote>}</li>) ?? <li className="text-caption text-subtle">첫 설명을 보내면 이해 상태를 확인할 수 있어요.</li>}</ul>
