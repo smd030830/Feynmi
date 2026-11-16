@@ -24,6 +24,15 @@ def _load(bucket: Any, key: str) -> bytes:
         raise FileNotFoundError(key) from exc
 
 
+def _delete(bucket: Any, key: str) -> None:
+    from google.api_core.exceptions import NotFound
+
+    try:
+        bucket.blob(key).delete()
+    except NotFound:
+        pass  # 원본 삭제 후 DB 커밋이 실패한 경우에도 다시 시도할 수 있다.
+
+
 class GcsStorage:
     """비공개 버킷. Signed URL에 Content-Type과 크기 범위를 서명해 GCS가 용량을 강제한다."""
 
@@ -58,6 +67,9 @@ class GcsStorage:
 
     def load(self, key: str) -> bytes:
         return _load(self._get_bucket(), key)
+
+    def delete(self, key: str) -> None:
+        _delete(self._get_bucket(), key)
 
 
 class EmulatorStorage:
@@ -105,6 +117,9 @@ class EmulatorStorage:
     def load(self, key: str) -> bytes:
         return _load(self._get_bucket(), key)
 
+    def delete(self, key: str) -> None:
+        _delete(self._get_bucket(), key)
+
 
 class UnconfiguredStorage:
     """버킷도 에뮬레이터도 없을 때. 업로드를 분명한 오류로 막는다."""
@@ -123,4 +138,7 @@ class UnconfiguredStorage:
         raise self._fail()
 
     def load(self, key: str) -> bytes:
+        raise self._fail()
+
+    def delete(self, key: str) -> None:
         raise self._fail()

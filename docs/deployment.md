@@ -21,7 +21,17 @@ PRD 9.1과 architecture 11장의 Vercel·Cloud Run·Cloud SQL·Cloud Storage·Cl
 - 실제 AI 분석과 브라우저 Google 로그인 전체 흐름은 검증하지 않았다. Google 공급자 활성화와 승인 도메인은 API로 확인했다.
 - 업로드 장애 후 검증: 운영 서버의 인증·상태 조회를 12개 동시 요청으로 3회 실행해 36개 모두 200을 확인했다. 임시 계정은 삭제했고 브라우저 오리진의 CORS도 확인했다. 유료 AI 분석을 재실행하는 부하 시험은 수행하지 않았다.
 
-## 배포 전
+## main 자동 배포
+
+- Vercel 프로젝트는 `smd030830/Feynmi` 저장소에 연결했다. 운영 브랜치는 `main`이며 Vercel 빌드 명령은 `pnpm lint && pnpm typecheck && pnpm build`다. 프론트 배포는 GitHub CI와 독립적으로 이 검사를 통과해야 완료된다.
+- `.github/workflows/deploy.yml`은 `main` push의 `CI` 전체 성공 후 Cloud Run을 배포한다. PR·다른 저장소의 실행은 제외하고 검사한 커밋 SHA로만 빌드한다. 최신 main보다 오래된 커밋은 배포하지 않는다.
+- 장기 서비스 계정 키 대신 GitHub OIDC를 사용한다. Google의 신뢰 조건은 저장소 ID·소유자 ID·main ref·배포 워크플로 경로를 모두 제한한다. GitHub 저장소 변수 `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`는 설정 완료했다.
+- 배포 계정에는 전용 프로젝트의 Cloud Run Developer, Service Usage Consumer, 이미지 저장소 Writer, 기존 런타임·마이그레이션 계정의 actAs만 부여한다. AI 키·DB URL은 기존 Secret Manager 참조를 유지한다.
+- 순서는 이미지 게시 → 기존 마이그레이션 작업 이미지 변경 → 마이그레이션 성공 대기 → 서비스 이미지 변경 → `/health` 검증이다. 서버 용량·환경변수·비밀 설정은 덮어쓰지 않는다. 임시 Google 인증 파일은 Git과 Vercel 업로드에서 제외한다.
+- 이전 원격 CI를 막던 자료 분석·시작 질문의 오래된 테스트 기대값 9개는 사용자가 기존 기대값 수정의 커밋을 예외 승인해 현재 규칙에 맞췄다. 새 기능용 테스트 파일은 계속 Git에서 제외한다. 실패 검사를 건너뛰지 않으며 CI 전체 성공 후에만 백엔드를 자동 배포한다.
+- 검증: 실제 Bash 배포 스크립트의 성공·마이그레이션 실패·상태 확인 실패·오래된 SHA 차단 등 8개 오프라인 테스트를 통과했다. 실제 GitHub OIDC 배포 실행은 아직 검증되지 않았다.
+
+## 배포 준비 절차
 
 1. GCP 프로젝트·리전·Cloud Run 서비스·이미지 저장소·Cloud SQL 연결 이름과 Vercel 프로젝트를 확정한다.
 2. Cloud SQL PostgreSQL 18에 pgvector를 활성화한다. `show server_version_num`이 180000 이상 190000 미만인지 확인하고 `select extversion from pg_extension where extname = 'vector'`로 확장을 확인한다.

@@ -216,6 +216,7 @@ class Concept(Base):
     ordinal: Mapped[int]
     title: Mapped[str] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text)
+    opening_question: Mapped[str | None] = mapped_column(Text)
     # state, score는 평가가 저장될 때 갱신하는 비정규화 값이다 (7.2). score가 null이면 미학습.
     state: Mapped[str] = mapped_column(Text, server_default=ConceptState.NOT_STUDIED.value)
     score: Mapped[int | None]

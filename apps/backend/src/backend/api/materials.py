@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -157,3 +157,14 @@ async def retry_material(
     material = await materials.retry_material(db, current.user.id, material_id)
     await _schedule(request, tasks, material, db)
     return _response(material)
+
+
+@router.delete("/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_material(
+    material_id: uuid.UUID,
+    request: Request,
+    current: ProfileUser,
+    db: DbSession,
+) -> Response:
+    await materials.delete_material(db, request.app.state.storage, current.user.id, material_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

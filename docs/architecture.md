@@ -238,6 +238,8 @@ concepts[]:
 ```
 
 ### 6.4 답변 평가 (PRD 6.1②, FR-3.2~3.3, FR-5.5)
+- 운영 `OpenAIProvider`는 `AssessmentOutput` 요청을 받으면 본 채점 전에 `AnswerRelevanceOutput`을 별도로 검증한다. 사전 입력은 현재 질문·이번 답변·개념 제목·기준 설명만 포함하고 누적 메시지와 검색 근거는 제외한다. `responsive` 판정은 이번 답변에 실제 존재하는 인용을 요구한다. 다른 판정은 빈 평가와 `latest_answer_relevant=false`로 반환해 세션 서비스가 422 `off_topic_response`를 안내한다.
+- 사전 검사 호출·스키마·인용 검증이 실패하면 본 채점으로 진행하지 않는다. `AnswerRelevanceError`는 현재 후보 메시지를 누적 근거에서 제거하고 503 `answer_filter_unavailable`로 재시도를 안내한다. 이전 판정과 회차는 보존하며, 분류 사유 원문은 API에 공개하지 않는다. 평가 임대는 임베딩·사전 검사·본 평가 세 호출의 시간 제한과 재시도를 포함한다.
 - 입력: 개념의 기준 설명, 체크리스트(요소 ID 포함), 흔한 오개념, 근거 청크(7.4), **현재 세션**의 누적 답변 전체와 그 사이의 추가 질문, 사용자의 AI 질문 난이도(`basic`/`deep`, PRD FR-4.6).
 - 난이도는 `followup_question` 작성 지침에만 들어간다. 요소 판정 지침과 스키마는 난이도와 관계없이 같다 (판정 일관성).
 - 출력 스키마(`AssessmentOutput`):
@@ -663,3 +665,9 @@ erDiagram
 | 홈/기록 | `services/home.py`, `services/records.py`, `domain/stats.py`, `/`, `/records` | 040, 041, 043~045 |
 | 설정/계정 | `services/account.py`, `/settings` | 070~073 |
 | 안정화/배포 | 오류 코드 매핑, 11장 | 060, 062, 063 |
+
+## 자료 개별 삭제 (PRD FR-1.9)
+
+`DELETE /api/v1/materials/{id}`는 본인 소유의 `ready`·`failed` 자료만 처리한다. `owned_material(..., lock=True)`로 재분석과 직렬화하며 진행 중 자료는 `409 material_busy`, 다른 사용자 자료는 `404`다. 비공개 저장소 원본을 먼저 삭제하고, 성공한 뒤 Material 행을 삭제해 FK cascade로 청크·개념·관련 세션과 기록을 제거한다. 원본이 이미 없으면 성공으로 처리한다. 저장소 오류는 503을 반환하고 DB를 유지해 재시도할 수 있게 한다.
+
+이미 발급한 Signed PUT URL은 개별 취소할 수 없어 만료 전 재사용 시 원본 경로에 고아 객체가 생길 가능성이 남는다. 앱의 자료·개념·기록은 복원되지 않는다. 이를 엄격히 차단하려면 만료 후 정리 또는 업로드 경로 변경을 별도로 설계해야 한다.

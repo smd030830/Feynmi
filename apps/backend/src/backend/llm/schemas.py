@@ -1,6 +1,6 @@
 """생성 결과 계약만 정의한다. 개념 추출·평가 업무 흐름은 구현하지 않는다."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -28,6 +28,7 @@ class ExtractedMisconception(OutputModel):
 class ExtractedConcept(OutputModel):
     title: Text
     description: Text
+    opening_question: Text | None = None
     elements: list[ExtractedElement] = Field(min_length=3, max_length=5)
     misconceptions: list[ExtractedMisconception] = Field(max_length=2)
 
@@ -57,7 +58,14 @@ class AssessmentFeedback(OutputModel):
     supplement: str
 
 
+class AnswerRelevanceOutput(OutputModel):
+    decision: Literal["responsive", "off_topic", "nonsense", "instruction_only"]
+    reason: Text
+    answer_quote: Text | None
+
+
 class AssessmentOutput(OutputModel):
+    latest_answer_relevant: bool = True
     elements: list[ElementAssessment]
     unverified_statements: list[UnverifiedStatement]
     feedback: AssessmentFeedback
