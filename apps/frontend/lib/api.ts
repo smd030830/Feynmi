@@ -171,6 +171,7 @@ export type Assessment = {
 };
 export type LearningSession = {
   id: string; concept_id: string; concept_title: string; project_id: string; project_name: string;
+  concept_available?: boolean;
   status: "in_progress" | "completed" | "aborted"; end_reason: string | null;
   followups_used: number; started_at: string; ended_at: string | null;
   messages: LearningMessage[]; assessments: Assessment[]; score_change: number | null;
@@ -207,6 +208,10 @@ export function listRecords(projectId?: string, cursor?: string) {
   const path = projectId ? `/projects/${encodeURIComponent(projectId)}/records` : "/records";
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
   return apiFetch<RecordPage>(path + query);
+}
+
+export function deleteRecord(sessionId: string) {
+  return apiFetch<void>(`/records/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
 }
 
 export function cleanupSessions() {

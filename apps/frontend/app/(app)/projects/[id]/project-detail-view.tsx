@@ -72,6 +72,15 @@ export function ProjectDetailView() {
       : previous);
   }, [id]);
 
+  const removeRecentRecord = useCallback((recordId: string) => {
+    setLoaded((previous) => {
+      if (previous?.id !== id || !previous.records) return previous;
+      const items = previous.records.items.filter((record) => record.id !== recordId);
+      if (items.length === previous.records.items.length) return previous;
+      return { ...previous, records: { ...previous.records, items, total: previous.records.total - 1 } };
+    });
+  }, [id]);
+
   const setMaterials = useCallback((items: Material[]) => {
     setLoaded((previous) => previous?.id === id ? { ...previous, materials: items } : previous);
   }, [id]);
@@ -266,7 +275,7 @@ export function ProjectDetailView() {
             />
           )}
           {tab === "records" && (
-            <RecordsPanel key={project.id} projectId={project.id} initialPage={current.records} onTotalChange={setRecordTotal} />
+            <RecordsPanel key={project.id} projectId={project.id} initialPage={current.records} onTotalChange={setRecordTotal} onRecordDeleted={removeRecentRecord} />
           )}
         </div>
       </div>

@@ -1,10 +1,10 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from backend.api.deps import CurrentUser, DbSession, require_profile
-from backend.services.records import RecordPage, list_records
+from backend.services.records import RecordPage, delete_record, list_records
 
 router = APIRouter(tags=["records"])
 ProfileUser = Annotated[CurrentUser, Depends(require_profile)]
@@ -17,6 +17,12 @@ async def get_records(
     current: ProfileUser, db: DbSession, cursor: Cursor = None, limit: PageSize = 20
 ) -> RecordPage:
     return await list_records(db, current.user.id, cursor=cursor, limit=limit)
+
+
+@router.delete("/records/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_record(session_id: uuid.UUID, current: ProfileUser, db: DbSession) -> Response:
+    await delete_record(db, current.user.id, session_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/projects/{project_id}/records")

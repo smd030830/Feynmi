@@ -16,6 +16,7 @@ from backend.db.models import Chunk, Concept, ConceptElement, Material, Project,
 from backend.domain.enums import FailureCode, FileType, MaterialStatus
 from backend.errors import AppError
 from backend.ingest import MAX_FILE_BYTES
+from backend.services.sessions import archive_material_sessions, lock_learning_user
 from backend.storage import (
     CONTENT_TYPES,
     MaterialDeletionStorage,
@@ -80,10 +81,14 @@ async def delete_material(
     user_id: uuid.UUID,
     material_id: uuid.UUID,
 ) -> None:
-    """원본과 연결된 개념·학습기록을 삭제한다. 진행 중 자료는 삭제하지 않는다."""
+    """학습기록을 보존하고 원본과 학습자료에서 추출한 데이터를 삭제한다."""
+    await lock_learning_user(db, user_id)
     material = await owned_material(db, user_id, material_id, lock=True)
     if material.status not in (MaterialStatus.READY, MaterialStatus.FAILED):
         raise AppError(409, "material_busy", "wait for material processing to finish")
+    await archive_material_sessions(db, user_id, material)
+    await db.delete(material)
+    await db.flush()
     try:
         await asyncio.to_thread(storage.delete, material.gcs_path)
     except Exception:
@@ -91,7 +96,6 @@ async def delete_material(
         raise AppError(
             503, "storage_unavailable", "material deletion unavailable", retryable=True
         ) from None
-    await db.delete(material)
     await db.commit()
 
 

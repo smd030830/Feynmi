@@ -2,7 +2,7 @@
 
 - ID는 UUID(`gen_random_uuid()`), 시각은 `timestamptz`다.
 - 열거형은 PostgreSQL enum이 아니라 `text + CHECK`로 둔다. 허용 값은 `domain.enums`에서 만든다.
-- 모든 FK는 `ON DELETE CASCADE`다. 회원 탈퇴는 `users` 행 삭제 하나로 끝난다 (PRD FR-4.7).
+- FK는 기본적으로 `ON DELETE CASCADE`다. 자료를 삭제해도 세션은 기록을 보존한다 (PRD FR-4.5).
 - 인덱스는 문서에 정한 것만 둔다. 조회가 생기는 스토리에서 마이그레이션으로 추가한다.
 """
 
@@ -256,7 +256,13 @@ class Session(Base):
 
     id: Mapped[uuid.UUID] = _pk()
     user_id: Mapped[uuid.UUID] = _fk("users.id")
-    concept_id: Mapped[uuid.UUID] = _fk("concepts.id")
+    concept_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("concepts.id", ondelete="SET NULL")
+    )
+    archived_project_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("projects.id", ondelete="CASCADE")
+    )
+    archived_view: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     status: Mapped[str] = mapped_column(Text, server_default=SessionStatus.IN_PROGRESS.value)
     end_reason: Mapped[str | None] = mapped_column(Text)
     followups_used: Mapped[int] = mapped_column(server_default=text("0"))

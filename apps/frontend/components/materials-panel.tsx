@@ -268,7 +268,7 @@ export function MaterialsPanel({
       {deleteTarget && (
         <Modal title="학습자료 삭제" dismissible={false} onClose={() => !deletePending.current && setDeleteTarget(null)}>
           <p className="break-words text-body font-semibold text-text">{deleteTarget.title}</p>
-          <p className="mt-3 text-body text-muted">원본 파일과 이 자료에서 생성한 개념, 관련 학습 기록이 함께 삭제됩니다. 삭제 후에는 복구할 수 없어요.</p>
+          <p className="mt-3 text-body text-muted">원본 파일과 이 자료에서 생성한 개념을 영구 삭제합니다. 이전 설명과 결과는 학습기록에서 계속 볼 수 있어요.</p>
           {deleteError && <p role="alert" className="mt-3 text-caption text-danger">{deleteError}</p>}
           <div className="mt-6 flex justify-end gap-2">
             <Button variant="ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>취소</Button>

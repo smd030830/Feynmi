@@ -36,6 +36,7 @@ from backend.domain.enums import Importance, SignInProvider, Verdict
 from backend.errors import AppError
 from backend.llm.provider import LLMError, LLMTask
 from backend.main import create_app
+from backend.services.materials import delete_material
 
 pytestmark = pytest.mark.usefixtures("migrated_db")
 URL = "/api/v1"
@@ -236,6 +237,83 @@ async def answer(
     setup: Setup, sid: str, text: str = "프로세스는 실행 중인 작업입니다"
 ) -> httpx.Response:
     return await setup.client.post(f"{URL}/sessions/{sid}/answers", json={"text": text})
+
+
+async def test_record_delete_is_owner_only_and_recomputes_concept_progress(setup: Setup) -> None:
+    earlier = await start(setup)
+    assert (await answer(setup, earlier)).status_code == 200
+    assert (await setup.client.delete(f"{URL}/records/{earlier}")).status_code == 404
+    assert (await setup.client.post(f"{URL}/sessions/{earlier}/abort")).status_code == 200
+
+    latest = await start(setup)
+    setup.provider.verdict = Verdict.MET
+    assert (await answer(setup, latest)).json()["status"] == "completed"
+    endpoint = f"{URL}/records/{latest}"
+    assert (await setup.client.delete(endpoint, headers=auth("bob"))).status_code == 404
+    assert (await setup.client.delete(endpoint)).status_code == 204
+    assert (await setup.client.get(f"{URL}/sessions/{latest}/result")).status_code == 404
+    assert (await setup.client.delete(endpoint)).status_code == 404
+
+    records = (await setup.client.get(f"{URL}/records")).json()
+    assert records["total"] == 1
+    assert records["items"][0]["id"] == earlier
+    project = (await setup.client.get(f"{URL}/projects/{setup.project_id}")).json()
+    assert project["score"] == 50
+    assert project["state_counts"]["partial"] == 1
+
+    assert (await setup.client.delete(f"{URL}/records/{earlier}")).status_code == 204
+    project = (await setup.client.get(f"{URL}/projects/{setup.project_id}")).json()
+    assert project["score"] is None
+    assert project["state_counts"]["not_studied"] == 2
+
+
+async def test_archived_records_are_listed_readable_and_deletable(setup: Setup) -> None:
+    class Storage:
+        def delete(self, key: str) -> None:
+            assert key == "unused"
+
+    finished = await start(setup)
+    setup.provider.verdict = Verdict.MET
+    assert (await answer(setup, finished)).status_code == 200
+    result_path = f"{URL}/sessions/{finished}/result"
+    before = (await setup.client.get(result_path)).json()
+    interrupted = await start(setup)
+    setup.provider.verdict = Verdict.PARTIAL
+    assert (await answer(setup, interrupted)).status_code == 200
+
+    concept = await setup.db.get(Concept, setup.concept_id)
+    assert concept is not None
+    await delete_material(setup.db, Storage(), setup.user_id, concept.material_id)
+    assert (await setup.client.get(f"{URL}/projects/{setup.project_id}/concepts")).json()[
+        "items"
+    ] == []
+    assert (
+        await setup.client.post(f"{URL}/concepts/{setup.concept_id}/sessions")
+    ).status_code == 404
+
+    for path in (f"{URL}/records", f"{URL}/projects/{setup.project_id}/records"):
+        page = (await setup.client.get(path)).json()
+        assert page["total"] == 2
+        assert [record["id"] for record in page["items"]] == [interrupted, finished]
+        assert [record["score"] for record in page["items"]] == [50, 100]
+        assert all(record["concept_title"] == "프로세스" for record in page["items"])
+    result = (await setup.client.get(result_path)).json()
+    assert result["concept_available"] is False
+    assert result["messages"] == before["messages"]
+    assert result["assessments"] == before["assessments"]
+    assert result["recommendation"] is None
+    assert (await setup.client.get(result_path, headers=auth("bob"))).status_code == 404
+    aborted = (await setup.client.get(f"{URL}/sessions/{interrupted}")).json()
+    assert aborted["status"] == "aborted"
+    assert aborted["concept_available"] is False
+    assert "note" not in aborted["assessments"][0]["elements"][0]
+    assert (await setup.client.get(f"{URL}/sessions/{interrupted}/result")).status_code == 409
+
+    endpoint = f"{URL}/records/{finished}"
+    assert (await setup.client.delete(endpoint, headers=auth("bob"))).status_code == 404
+    assert (await setup.client.delete(endpoint)).status_code == 204
+    assert (await setup.client.get(result_path)).status_code == 404
+    assert (await setup.client.get(f"{URL}/records")).json()["total"] == 1
 
 
 async def test_answer_confidence_records_metadata_without_exposing_it_to_evaluator(

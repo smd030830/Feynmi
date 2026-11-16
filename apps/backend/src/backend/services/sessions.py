@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from pydantic import TypeAdapter
 from sqlalchemy import delete, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +48,8 @@ from backend.llm.provider import AnswerRelevanceError, LLMError, LLMTask
 from backend.llm.schemas import AssessmentOutput
 from backend.llm.validators import validate_assessment
 from backend.rag.store import search_chunks
+
+_SESSION_VIEW_ADAPTER = TypeAdapter(dict[str, Any])
 
 # The production dependency derives the embedding + generation lease from settings.
 DEFAULT_LEASE_SECONDS = 600
@@ -100,7 +103,7 @@ supplement는 종료 후 제공할 상세 풀이로, 부족하거나 틀린 각 
 missing, incorrect, summary_points는 빈 배열, supplement는 빈 문자열로 반환한다."""
 
 
-async def _lock_user(db: AsyncSession, user_id: uuid.UUID) -> User:
+async def lock_learning_user(db: AsyncSession, user_id: uuid.UUID) -> User:
     user = await db.scalar(
         select(User)
         .where(User.id == user_id)
@@ -129,11 +132,18 @@ async def _owned_concept(
 
 
 async def _owned_session(
-    db: AsyncSession, user_id: uuid.UUID, session_id: uuid.UUID, *, lock: bool = False
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    *,
+    lock: bool = False,
+    read_lock: bool = False,
 ) -> Session:
     statement = select(Session).where(Session.id == session_id, Session.user_id == user_id)
     if lock:
         statement = statement.with_for_update().execution_options(populate_existing=True)
+    elif read_lock:
+        statement = statement.with_for_update(read=True).execution_options(populate_existing=True)
     session = await db.scalar(statement)
     if session is None:
         raise AppError(404, "not_found")
@@ -210,7 +220,7 @@ async def start_session(
     lease_seconds: float | None = None,
 ) -> dict[str, Any]:
     lease_seconds = lease_seconds if lease_seconds is not None else evaluation_lease_seconds()
-    await _lock_user(db, user_id)
+    await lock_learning_user(db, user_id)
     concept, material, _ = await _owned_concept(db, user_id, concept_id)
     if material.status != MaterialStatus.READY:
         raise AppError(409, "invalid_state", "material is not ready")
@@ -263,7 +273,7 @@ async def start_session(
 
 
 async def cleanup_on_home(db: AsyncSession, user_id: uuid.UUID) -> None:
-    await _lock_user(db, user_id)
+    await lock_learning_user(db, user_id)
     await cleanup_sessions(db, user_id)
     await db.commit()
 
@@ -275,7 +285,7 @@ async def abort_session(
     lease_seconds: float | None = None,
 ) -> dict[str, Any]:
     lease_seconds = lease_seconds if lease_seconds is not None else evaluation_lease_seconds()
-    await _lock_user(db, user_id)
+    await lock_learning_user(db, user_id)
     session = await _owned_session(db, user_id, session_id, lock=True)
     if session.status == SessionStatus.IN_PROGRESS:
         if _live_lock(session, lease_seconds):
@@ -353,11 +363,23 @@ async def _recommendation(
 async def session_view(
     db: AsyncSession, user_id: uuid.UUID, session_id: uuid.UUID, *, result: bool = False
 ) -> dict[str, Any]:
-    session = await _owned_session(db, user_id, session_id)
+    # Keep the live concept and evidence readable while its material is being archived.
+    session = await _owned_session(db, user_id, session_id, read_lock=True)
+    if result and session.status != SessionStatus.COMPLETED:
+        raise AppError(409, "invalid_state", "only completed sessions have results")
+    if session.archived_view is not None:
+        return session.archived_view
+    return await _session_view(db, user_id, session)
+
+
+async def _session_view(
+    db: AsyncSession, user_id: uuid.UUID, session: Session, *, archived: bool = False
+) -> dict[str, Any]:
+    session_id = session.id
+    if session.concept_id is None:
+        raise AppError(404, "not_found")
     concept, _, project = await _owned_concept(db, user_id, session.concept_id)
     completed = session.status == SessionStatus.COMPLETED
-    if result and not completed:
-        raise AppError(409, "invalid_state", "only completed sessions have results")
     messages = list(
         await db.scalars(
             select(Message).where(Message.session_id == session_id).order_by(Message.seq)
@@ -481,8 +503,9 @@ async def session_view(
         "assessments": items,
         "score_change": items[-1]["score"] - items[0]["score"] if items else None,
         "remaining_core_count": remaining,
+        "concept_available": not archived,
         "recommendation": await _recommendation(db, user_id, concept.id, project_id=project.id)
-        if completed
+        if completed and not archived
         else None,
     }
     if session.status == SessionStatus.IN_PROGRESS:
@@ -491,6 +514,42 @@ async def session_view(
             messages[-1].text if messages and messages[-1].role == MessageRole.QUESTION else None
         )
     return view
+
+
+async def archive_material_sessions(
+    db: AsyncSession, user_id: uuid.UUID, material: Material
+) -> None:
+    """Snapshot answered sessions under the caller's user lock before deleting their concepts."""
+    answered = (
+        select(Message.id)
+        .where(Message.session_id == Session.id, Message.role == MessageRole.ANSWER)
+        .exists()
+    )
+    rows = (
+        await db.execute(
+            select(Session, answered)
+            .join(Concept, Concept.id == Session.concept_id)
+            .where(Session.user_id == user_id, Concept.material_id == material.id)
+            .with_for_update(of=Session)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    lease_seconds = evaluation_lease_seconds()
+    if any(_live_lock(session, lease_seconds) for session, _ in rows):
+        raise AppError(409, "evaluation_in_progress")
+    for session, has_answer in rows:
+        if not has_answer:
+            await db.delete(session)
+            continue
+        if session.status == SessionStatus.IN_PROGRESS:
+            session.status = SessionStatus.ABORTED
+            session.end_reason = EndReason.STALE
+            session.ended_at = datetime.now(UTC)
+            session.evaluating_since = None
+        view = await _session_view(db, user_id, session, archived=True)
+        session.archived_view = _SESSION_VIEW_ADAPTER.dump_python(view, mode="json")
+        session.archived_project_id = material.project_id
+        session.concept_id = None
 
 
 async def submit_answer(
@@ -504,9 +563,9 @@ async def submit_answer(
     confidence: AnswerConfidence | None = None,
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
 ) -> dict[str, Any]:
-    await _lock_user(db, user_id)
+    await lock_learning_user(db, user_id)
     session = await _owned_session(db, user_id, session_id, lock=True)
-    if session.status != SessionStatus.IN_PROGRESS:
+    if session.status != SessionStatus.IN_PROGRESS or session.concept_id is None:
         raise AppError(409, "invalid_state", "session has ended")
     if _live_lock(session, lease_seconds):
         raise AppError(409, "evaluation_in_progress")
@@ -628,7 +687,7 @@ async def submit_answer(
             )
             # Fake implementations must meet the same semantic boundary as the real provider.
             validate(output)
-        await _lock_user(db, user_id)
+        await lock_learning_user(db, user_id)
         session = await _owned_session(db, user_id, session_id, lock=True)
         if session.status != SessionStatus.IN_PROGRESS or session.evaluating_since != lease:
             raise AppError(409, "invalid_state", "evaluation lease was replaced")
@@ -723,14 +782,15 @@ async def submit_answer(
         await db.commit()
     except BaseException as exc:
         await db.rollback()
-        if isinstance(exc, AnswerRelevanceError):
-            await db.execute(delete(Message).where(Message.id == answer_message_id))
         # Conditional release prevents an old evaluator from unlocking a newer request.
-        await db.execute(
+        released = await db.scalar(
             update(Session)
             .where(Session.id == session_id, Session.evaluating_since == lease)
             .values(evaluating_since=None)
+            .returning(Session.id)
         )
+        if released is not None and isinstance(exc, AnswerRelevanceError):
+            await db.execute(delete(Message).where(Message.id == answer_message_id))
         await db.commit()
         if isinstance(exc, AnswerRelevanceError):
             raise AppError(

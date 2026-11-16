@@ -123,7 +123,7 @@ export function SessionView() {
     catch (err) { setError(apiErrorMessage(err)); } finally { live.current.pending = false; setPending(false); }
   }
   async function restart() {
-    if (!session || live.current.pending) return;
+    if (!session || session.concept_available === false || live.current.pending) return;
     setError("");
     await begin(session.concept_id);
   }
@@ -138,6 +138,7 @@ export function SessionView() {
   return <div className="space-y-7">
     <div className="flex items-center justify-between"><Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>학습 종료</Button>}</div>
     <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="text-caption text-subtle">{ended ? "중단된 학습" : `추가 질문 ${Math.max(0, 3 - session.followups_used)}회 남음`}</span></header>
+    {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되어 이 개념을 다시 학습할 수 없어요. 당시 설명과 피드백은 아래에서 볼 수 있어요.</p>}
     {!ended && <ol className="flex rounded-card border border-line bg-surface p-4" aria-label="학습 단계">{steps.map((step, i) => <li key={step} aria-current={i === session.followups_used ? "step" : undefined} className={`flex-1 text-center text-caption font-bold ${i === session.followups_used ? "text-primary-strong" : "text-subtle"}`}><span className={`mx-auto mb-2 flex size-7 items-center justify-center rounded-full ${i <= session.followups_used ? "bg-primary-soft text-primary-strong" : "bg-canvas"}`}>{i + 1}</span>{step}</li>)}</ol>}
     {(error || startError) && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error || startError}</p>}
     <div className={ended ? "" : "grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-6"}>
@@ -192,7 +193,7 @@ export function SessionView() {
             {speechMessage || (speechState === "listening" ? "듣고 있어요. 설명을 마치면 음성 입력을 중지해주세요." : speechState === "stopping" ? "마지막 음성을 텍스트로 바꾸고 있어요." : "")}
           </p>
           <p className="mt-3 text-micro text-subtle">정답을 맞히려 하지 않아도 괜찮아요. 지금 이해한 만큼 자신의 언어로 설명해주세요.</p>
-        </form> : <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이 개념 다시 학습하기</Button></div>}
+        </form> : session.concept_available !== false && <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이 개념 다시 학습하기</Button></div>}
       </section>
       {!ended && <aside className="min-w-0 space-y-5 rounded-card border border-line bg-surface p-4 sm:p-5 lg:sticky lg:top-24"><div><p className="text-eyebrow font-bold text-primary-strong">실시간 분석</p><h2 className="mt-2 text-subheading font-bold">현재 이해 상태</h2><div className="mt-3"><StateBadge state={latest?.state ?? "not_studied"} /></div></div>
         <ul className="space-y-4">{latest?.elements.map((element) => <li key={element.element_id} className="text-caption"><p className="font-semibold text-muted">{element.text}</p><p className="mt-1 text-subtle">{element.importance === "core" ? "핵심" : "보조"} · {pending ? "이해 확인 중" : verdictLabels[element.verdict]}</p>{element.learner_quote && <blockquote className="mt-2 border-l-2 border-primary-line pl-2 text-subtle">“{element.learner_quote}”</blockquote>}</li>) ?? <li className="text-caption text-subtle">첫 설명을 보내면 이해 상태를 확인할 수 있어요.</li>}</ul>

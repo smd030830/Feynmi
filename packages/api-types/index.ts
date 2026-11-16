@@ -105,6 +105,9 @@ export type Paths = {
   "/api/v1/records": {
     "get": { parameters: { query?: { "cursor"?: (string) | (null); "limit"?: number; }; }; requestBody?: never; responses: { "200": Schemas["RecordPage"]; "422": Schemas["HTTPValidationError"]; }; };
   };
+  "/api/v1/records/{session_id}": {
+    "delete": { parameters: { path: { "session_id": string; }; }; requestBody?: never; responses: { "204": void; "422": Schemas["HTTPValidationError"]; }; };
+  };
   "/api/v1/sessions/cleanup": {
     "post": { parameters?: never; requestBody?: never; responses: { "204": void; }; };
   };

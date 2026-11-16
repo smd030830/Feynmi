@@ -6,12 +6,13 @@ import uuid
 from datetime import datetime
 
 from pydantic import AwareDatetime, BaseModel, ValidationError
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import Select, Uuid, cast, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Assessment, Concept, Material, Message, Project, Session
-from backend.domain.enums import MessageRole, SessionStatus
+from backend.domain.enums import ConceptState, MessageRole, SessionStatus
 from backend.errors import AppError
+from backend.services.sessions import lock_learning_user
 
 
 class RecordItem(BaseModel):
@@ -50,6 +51,29 @@ def _encode_cursor(item: RecordItem) -> str:
     return base64.urlsafe_b64encode(cursor.model_dump_json().encode()).decode().rstrip("=")
 
 
+def _record_scope(user_id: uuid.UUID) -> Select[uuid.UUID]:
+    answered = (
+        select(Message.id)
+        .where(Message.session_id == Session.id, Message.role == MessageRole.ANSWER)
+        .exists()
+    )
+    # 세션과 프로젝트 소유자를 함께 확인해 다른 사용자의 자료가 노출되지 않게 한다.
+    return (
+        select(Session.id)
+        .outerjoin(Concept, Concept.id == Session.concept_id)
+        .outerjoin(Material, Material.id == Concept.material_id)
+        .join(
+            Project, Project.id == func.coalesce(Material.project_id, Session.archived_project_id)
+        )
+        .where(
+            Session.user_id == user_id,
+            Project.user_id == user_id,
+            Session.status.in_([SessionStatus.COMPLETED, SessionStatus.ABORTED]),
+            answered,
+        )
+    )
+
+
 async def list_records(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -63,24 +87,7 @@ async def list_records(
     ):
         raise AppError(404, "not_found")
 
-    answered = (
-        select(Message.id)
-        .where(Message.session_id == Session.id, Message.role == MessageRole.ANSWER)
-        .exists()
-    )
-    # 세션과 프로젝트 소유자를 함께 확인해 다른 사용자의 자료가 노출되지 않게 한다.
-    query = (
-        select(Session.id)
-        .join(Concept, Concept.id == Session.concept_id)
-        .join(Material, Material.id == Concept.material_id)
-        .join(Project, Project.id == Material.project_id)
-        .where(
-            Session.user_id == user_id,
-            Project.user_id == user_id,
-            Session.status.in_([SessionStatus.COMPLETED, SessionStatus.ABORTED]),
-            answered,
-        )
-    )
+    query = _record_scope(user_id)
     if project_id is not None:
         query = query.where(Project.id == project_id)
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -98,8 +105,12 @@ async def list_records(
     rows = await db.execute(
         query.with_only_columns(
             Session.id,
-            Session.concept_id,
-            Concept.title.label("concept_title"),
+            func.coalesce(
+                Session.concept_id, cast(Session.archived_view["concept_id"].astext, Uuid)
+            ).label("concept_id"),
+            func.coalesce(Concept.title, Session.archived_view["concept_title"].astext).label(
+                "concept_title"
+            ),
             Project.id.label("project_id"),
             Project.name.label("project_name"),
             Session.started_at,
@@ -118,3 +129,40 @@ async def list_records(
         total=total,
         next_cursor=_encode_cursor(items[-1]) if has_more else None,
     )
+
+
+async def delete_record(db: AsyncSession, user_id: uuid.UUID, session_id: uuid.UUID) -> None:
+    await lock_learning_user(db, user_id)
+    record = await db.scalar(
+        _record_scope(user_id)
+        .where(Session.id == session_id)
+        .with_only_columns(Session)
+        .with_for_update(of=Session)
+    )
+    if record is None:
+        raise AppError(404, "not_found")
+
+    concept = await db.get(Concept, record.concept_id) if record.concept_id else None
+    await db.delete(record)
+    await db.flush()
+    if concept is not None:
+        remaining = (
+            select(Assessment)
+            .join(Session, Session.id == Assessment.session_id)
+            .where(Session.concept_id == concept.id, Session.user_id == user_id)
+        )
+        latest = await db.scalar(
+            remaining.order_by(
+                Assessment.created_at.desc(),
+                Session.started_at.desc(),
+                Assessment.seq.desc(),
+                Assessment.id.desc(),
+            ).limit(1)
+        )
+        concept.state = latest.state if latest else ConceptState.NOT_STUDIED
+        concept.score = latest.score if latest else None
+        concept.last_assessed_at = latest.created_at if latest else None
+        concept.first_assessed_at = await db.scalar(
+            remaining.with_only_columns(func.min(Assessment.created_at))
+        )
+    await db.commit()

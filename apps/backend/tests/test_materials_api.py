@@ -26,15 +26,19 @@ from test_ingest import make_pdf
 from backend.auth.firebase import VerifiedToken
 from backend.config import Settings
 from backend.db.models import (
+    Assessment,
+    AssessmentElement,
     Chunk,
     Concept,
     ConceptElement,
     ConceptMisconception,
     Material,
+    Message,
+    Session,
     User,
 )
 from backend.db.session import make_session_factory
-from backend.domain.enums import SignInProvider
+from backend.domain.enums import ConceptState, Importance, SessionStatus, SignInProvider, Verdict
 from backend.errors import AppError
 from backend.ingest.config import OCRSettings
 from backend.ingest.ocr import HybridOcr, OcrResult
@@ -82,6 +86,7 @@ class FakeStorage:
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
         self.targets: dict[str, str] = {}  # 업로드 주소 → 객체 경로
+        self.deletion_fails = False
 
     def upload_target(self, key: str, content_type: str, max_bytes: int) -> UploadTarget:
         url = f"https://upload.invalid/{len(self.targets)}"
@@ -100,6 +105,11 @@ class FakeStorage:
         if key not in self.files:
             raise FileNotFoundError(key)
         return self.files[key]
+
+    def delete(self, key: str) -> None:
+        if self.deletion_fails:
+            raise RuntimeError("storage unavailable")
+        self.files.pop(key, None)
 
 
 class FakeQueue:
@@ -258,6 +268,133 @@ async def test_newest_material_is_listed_first(client: httpx.AsyncClient, projec
     await upload(client, project, "첫째.pdf", make_pdf(["하나"]))
     await upload(client, project, "둘째.pdf", make_pdf(["둘"]))
     assert [m["title"] for m in await materials(client, project)] == ["둘째.pdf", "첫째.pdf"]
+
+
+@pytest.mark.parametrize("status", [SessionStatus.COMPLETED, SessionStatus.IN_PROGRESS])
+async def test_deleting_material_preserves_answered_session_with_evidence(
+    client: httpx.AsyncClient,
+    project: str,
+    engine: AsyncEngine,
+    status: SessionStatus,
+) -> None:
+    key = "archive-test.pdf"
+    STORAGE.files[key] = b"test source"
+    async with make_session_factory(engine)() as db:
+        alice_id = (
+            await db.execute(select(User.id).where(User.firebase_uid == ALICE))
+        ).scalar_one()
+        material = Material(
+            project_id=uuid.UUID(project),
+            title="원본.pdf",
+            file_type="pdf",
+            status="ready",
+            gcs_path=key,
+            size_bytes=11,
+        )
+        db.add(material)
+        await db.flush()
+        concept = Concept(material_id=material.id, ordinal=0, title="개념", description="기준 설명")
+        chunk = Chunk(
+            material_id=material.id,
+            project_id=material.project_id,
+            ordinal=0,
+            page_start=2,
+            page_end=3,
+            text="자료 본문",
+            token_count=1,
+            embedding=[1.0, *([0.0] * 1535)],
+        )
+        db.add_all([concept, chunk])
+        await db.flush()
+        element = ConceptElement(
+            concept_id=concept.id, ordinal=0, text="채점 요소", importance=Importance.CORE
+        )
+        answered = Session(
+            concept_id=concept.id,
+            user_id=alice_id,
+            status=status,
+            ended_at=datetime.now(UTC) if status == SessionStatus.COMPLETED else None,
+        )
+        empty = Session(concept_id=concept.id, user_id=alice_id, status=SessionStatus.ABORTED)
+        db.add_all([element, answered, empty])
+        await db.flush()
+        answer = Message(
+            session_id=answered.id, seq=0, role="answer", text="학습 답변", confidence="high"
+        )
+        db.add(answer)
+        await db.flush()
+        assessment = Assessment(
+            session_id=answered.id,
+            answer_message_id=answer.id,
+            seq=0,
+            state=ConceptState.UNDERSTOOD,
+            score=100,
+            model_id="test-model",
+            raw_output={},
+        )
+        db.add(assessment)
+        await db.flush()
+        db.add(
+            AssessmentElement(
+                assessment_id=assessment.id,
+                element_id=element.id,
+                verdict=Verdict.MET,
+                learner_quote=answer.text,
+                evidence_chunk_ids=[chunk.id],
+            )
+        )
+        await db.commit()
+
+    source = f"{API_PREFIX}/materials/{material.id}"
+    detail = f"{API_PREFIX}/sessions/{answered.id}"
+    assert (await client.delete(source, headers=auth(BOB))).status_code == 404
+    STORAGE.deletion_fails = True
+    assert (await client.delete(source, headers=auth(ALICE))).status_code == 503
+    current = (await client.get(detail, headers=auth(ALICE))).json()
+    assert current["concept_available"] is True
+    assert current["status"] == status
+    assert key in STORAGE.files
+
+    STORAGE.deletion_fails = False
+    if status == SessionStatus.IN_PROGRESS:
+        async with make_session_factory(engine)() as db:
+            await db.execute(
+                update(Session)
+                .where(Session.id == answered.id)
+                .values(evaluating_since=datetime.now(UTC))
+            )
+            await db.commit()
+        busy = await client.delete(source, headers=auth(ALICE))
+        assert busy.status_code == 409
+        assert busy.json()["error"]["code"] == "evaluation_in_progress"
+        assert key in STORAGE.files
+        async with make_session_factory(engine)() as db:
+            await db.execute(
+                update(Session).where(Session.id == answered.id).values(evaluating_since=None)
+            )
+            await db.commit()
+    assert (await client.delete(source, headers=auth(ALICE))).status_code == 204
+    assert key not in STORAGE.files
+    assert await materials(client, project) == []
+    assert (
+        await client.get(f"{API_PREFIX}/sessions/{empty.id}", headers=auth(ALICE))
+    ).status_code == 404
+    assert (await client.get(detail, headers=auth(BOB))).status_code == 404
+    result = await client.get(detail, headers=auth(ALICE))
+    assert result.status_code == 200
+    archive = result.json()
+    assert archive["concept_available"] is False
+    assert archive["status"] == ("completed" if status == SessionStatus.COMPLETED else "aborted")
+    assert archive["concept_id"] == str(concept.id)
+    assert archive["recommendation"] is None
+    assert archive["messages"] == current["messages"]
+    assert archive["assessments"] == current["assessments"]
+    assert archive["assessments"][0]["elements"][0]["evidence"][0]["page_start"] == 2
+    results = await client.get(f"{detail}/result", headers=auth(ALICE))
+    assert results.status_code == (200 if status == SessionStatus.COMPLETED else 409)
+    async with make_session_factory(engine)() as db:
+        assert await db.get(Concept, concept.id) is None
+        assert await db.get(Chunk, chunk.id) is None
 
 
 # --- 업로드 단계에서 막히는 예외 (사전 검증) ---

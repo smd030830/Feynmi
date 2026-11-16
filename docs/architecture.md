@@ -438,6 +438,8 @@ sequenceDiagram
 - `started_at DESC, id DESC` 순서의 커서 기반 페이지네이션을 쓴다. `limit`은 기본 20, 허용 범위 1~100이다. `cursor`는 마지막 항목의 시각과 UUID를 담은 base64url이며 잘못된 커서는 `validation_error`로 거부한다. 화면은 "더 보기"로 추가 조회하고 실패 시 기존 목록을 유지한 채 재시도한다.
 - 프로젝트 상세는 첫 기록 페이지를 개념·프로젝트와 병렬 조회해 탭의 전체 건수와 기록 목록에 재사용한다. 기록 조회만 실패하면 프로젝트 화면을 유지하고 기록 탭에서 재시도한다.
 - 상세는 세션 뷰(`GET /sessions/{id}`)를 그대로 쓴다. 공개 범위는 8.1 표를 따른다. 완료 세션의 결과는 `GET /sessions/{id}/result`로 받는다.
+- 자료 삭제 직전에 답변이 있는 세션의 공개 상세를 저장한다. 보존된 세션은 프로젝트 ID와 원래 개념의 ID·이름으로 목록에 표시하고, 상세에 `concept_available: false`를 반환한다.
+- `DELETE /records/{session_id}`는 본인의 답변이 있는 완료·중단 세션과 연결된 대화·판정을 삭제한다. 해당 개념이 남아 있으면 남은 판정으로 현재 상태와 점수를 갱신한다.
 
 ### 7.7 계정 관리 (PRD FR-4.1, FR-4.6, FR-4.7)
 - **닉네임**: `PATCH /me/profile`. 이메일 가입 ③ 단계, 구글 온보딩, 설정이 같은 API를 쓴다.
@@ -490,6 +492,7 @@ sequenceDiagram
 | `POST /sessions/cleanup` | 홈 진입 시 누락된 이탈 알림 보완. 유효한 평가 잠금은 보존 | 〃 | 032 |
 | `GET /sessions/{id}/result` | 결과 화면 데이터 (FR-3.5, 추천 포함) | 〃, `completed`일 때만 | 042 |
 | `GET /records`, `GET /projects/{id}/records` | 학습기록 목록 | 〃 | 044 |
+| `DELETE /records/{session_id}` | 학습기록 개별 삭제 | 〃, 답변이 있는 완료·중단 세션 | 044 |
 | `GET /home` | 홈 전체 (7.5) | 〃 | 040, 041, 043, 045 |
 | `POST /internal/tasks/analyze-material` | 분석 실행 | Cloud Tasks OIDC | 020~022, 051 |
 
@@ -567,7 +570,7 @@ erDiagram
 | `concepts` | `material_id`, `ordinal`, `title`, `description`, `state`(not_studied/partial/misconception/understood, 기본 not_studied), `score`(0~100, null = 미학습), `last_assessed_at`, `first_assessed_at` | `state`, `score`는 7.2 규칙에 따른 비정규화 값 |
 | `concept_elements` | `concept_id`, `ordinal`, `text`, `importance`(core/supporting), `evidence_chunk_ids uuid[]` | |
 | `concept_misconceptions` | `concept_id`, `text`, `evidence_chunk_ids uuid[]` | |
-| `sessions` | `user_id`, `concept_id`, `status`(in_progress/completed/aborted), `end_reason`, `followups_used`, `evaluating_since`, `started_at`, `ended_at` | **부분 유니크 인덱스** `(user_id) WHERE status='in_progress'` |
+| `sessions` | `user_id`, `concept_id`, `archived_project_id`, `archived_view`(개념 삭제 시 보존하는 공개 세션 상세), `status`(in_progress/completed/aborted), `end_reason`, `followups_used`, `evaluating_since`, `started_at`, `ended_at` | **부분 유니크 인덱스** `(user_id) WHERE status='in_progress'` |
 | `messages` | `session_id`, `seq`, `role`(answer/question), `text`, `confidence`(답변에만 선택적으로 저장), `created_at` | unique `(session_id, seq)` |
 | `assessments` | `session_id`, `answer_message_id`(판정을 요청한 답변, 이전 기록은 null), `seq`, `state`, `score`, `model_id`, `raw_output jsonb`, `created_at` | 이력 보존 (PRD 6.1④). `raw_output`은 판정 품질 점검용. 인덱스 `(created_at)`(학습 통계) |
 | `assessment_elements` | `assessment_id`, `element_id`, `verdict`, `learner_quote`, `evidence_chunk_ids uuid[]`, `note` | |

@@ -41,6 +41,7 @@ export function ResultView() {
   return <div className="space-y-7">
     <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>
     <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">LEARNING COMPLETE</p><h1 className="mt-2 text-title-1 font-bold">학습 결과</h1><p className="mt-1 text-body-lg text-muted">설명 속에 드러난 이해를 분석했어요.</p></div><p className="text-caption text-subtle">{new Date(session.started_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · {duration}분 학습</p></header>
+    {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되었어요. 당시 결과와 대화는 아래에서 볼 수 있어요.</p>}
     <section className="grid grid-cols-[1fr_auto_1fr] items-center gap-9 rounded-hero border border-primary-line bg-surface p-8">
       <div><p className="text-caption font-bold text-subtle">학습 개념</p><h2 className="mt-2 text-title-2 font-bold">{session.concept_title}</h2>{needsWork && !!feedback?.summary_points?.length && <div className="mt-3"><FeedbackList items={feedback.summary_points} /></div>}<p className="mt-5 text-body font-bold text-primary-strong">{difference > 0 ? `+${difference}%p 상승` : difference < 0 ? `${Math.abs(difference)}%p 하락` : "변화 없음"}</p><p className="text-caption text-subtle">{first?.score ?? 0}%에서 시작했어요</p></div>
       <ProgressRing score={final?.score ?? null} />

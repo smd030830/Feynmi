@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { Icon } from "@/components/icon";
-import { apiErrorMessage, listRecords, type RecordPage } from "@/lib/api";
+import { Modal } from "@/components/modal";
+import { apiErrorMessage, deleteRecord, listRecords, type RecordPage } from "@/lib/api";
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul", year: "numeric", month: "long", day: "numeric",
@@ -15,10 +16,12 @@ export function RecordsPanel({
   projectId,
   initialPage,
   onTotalChange,
+  onRecordDeleted,
 }: {
   projectId?: string;
   initialPage?: RecordPage;
   onTotalChange?: (total: number) => void;
+  onRecordDeleted?: (id: string) => void;
 }) {
   const [loaded, setLoaded] = useState<{ scope?: string; page?: RecordPage; error?: string }>(
     { scope: projectId, page: initialPage },
@@ -26,7 +29,11 @@ export function RecordsPanel({
   const [attempt, setAttempt] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<RecordPage["items"][number]>();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const morePending = useRef(false);
+  const deletePending = useRef(false);
   const generation = useRef(0);
   const current = loaded.scope === projectId ? loaded : undefined;
   const total = current?.page?.total;
@@ -37,17 +44,53 @@ export function RecordsPanel({
 
   useEffect(() => {
     const request = ++generation.current;
-    if (initialPage && attempt === 0) return () => { generation.current = request + 1; };
+    let active = true;
     listRecords(projectId).then(
-      (page) => { if (generation.current === request) setLoaded({ scope: projectId, page }); },
-      (error) => { if (generation.current === request) setLoaded({ scope: projectId, error: apiErrorMessage(error) }); },
+      (page) => { if (active && generation.current === request) setLoaded({ scope: projectId, page }); },
+      (error) => {
+        if (!active || generation.current !== request) return;
+        setLoaded((previous) => previous.scope === projectId && previous.page
+          ? previous
+          : { scope: projectId, error: apiErrorMessage(error) });
+      },
     );
-    return () => { generation.current = request + 1; };
-  }, [projectId, initialPage, attempt]);
+    return () => { active = false; };
+  }, [projectId, attempt]);
+
+  async function removeRecord() {
+    if (!deleteTarget || deletePending.current || morePending.current) return;
+    const { id } = deleteTarget;
+    const request = generation.current;
+    deletePending.current = true;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteRecord(id);
+      // Ignore a first-page response that may have been in flight before the deletion.
+      generation.current++;
+      setLoaded((previous) => {
+        if (previous.scope !== projectId || !previous.page) return previous;
+        const items = previous.page.items.filter((item) => item.id !== id);
+        if (items.length === previous.page.items.length) return previous;
+        const total = Math.max(0, previous.page.total - 1);
+        return {
+          scope: projectId,
+          page: { items, total, next_cursor: total > items.length ? previous.page.next_cursor : null },
+        };
+      });
+      setDeleteTarget(undefined);
+      onRecordDeleted?.(id);
+    } catch (error) {
+      if (request === generation.current) setDeleteError(apiErrorMessage(error));
+    } finally {
+      deletePending.current = false;
+      setDeleting(false);
+    }
+  }
 
   async function loadMore() {
     const cursor = current?.page?.next_cursor;
-    if (!cursor || morePending.current) return;
+    if (!cursor || morePending.current || deletePending.current) return;
     const request = generation.current;
     morePending.current = true;
     setLoadingMore(true);
@@ -67,7 +110,7 @@ export function RecordsPanel({
       if (request === generation.current) setMoreError(apiErrorMessage(error));
     } finally {
       morePending.current = false;
-      if (request === generation.current) setLoadingMore(false);
+      setLoadingMore(false);
     }
   }
 
@@ -83,9 +126,9 @@ export function RecordsPanel({
       ) : (
         <>
           <div className="flex justify-end">
-            <span className="rounded-full bg-primary-soft px-4 py-2 text-caption font-bold text-primary-strong">총 {current.page.total}회 학습</span>
+            <span aria-live="polite" className="rounded-full bg-primary-soft px-4 py-2 text-caption font-bold text-primary-strong">총 {current.page.total}회 학습</span>
           </div>
-          {current.page.items.length === 0 ? (
+          {current.page.total === 0 ? (
             <div className="flex flex-col items-center rounded-card border border-line bg-surface px-6 py-14 text-center">
               <Icon name="chart" size={28} className="text-primary" />
               <h2 className="mt-4 text-subheading font-bold text-text">아직 학습기록이 없어요</h2>
@@ -97,8 +140,8 @@ export function RecordsPanel({
                 const completed = record.status === "completed";
                 const minutes = Math.max(1, Math.ceil((Date.parse(record.ended_at ?? record.started_at) - Date.parse(record.started_at)) / 60000));
                 return (
-                  <li key={record.id}>
-                    <Link href={`/sessions/${record.id}${completed ? "/result" : ""}`} className="flex items-center gap-5 rounded-card border border-line bg-surface p-5 transition hover:border-primary-line hover:shadow-brand-sm">
+                  <li key={record.id} className="flex items-center rounded-card border border-line bg-surface pr-2 transition hover:border-primary-line hover:shadow-brand-sm sm:pr-4">
+                    <Link href={`/sessions/${record.id}${completed ? "/result" : ""}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-card px-3 py-4 sm:gap-5 sm:p-5">
                       <span className={`flex size-10 shrink-0 items-center justify-center rounded-full ${completed ? "bg-success-soft text-success" : "bg-canvas text-subtle"}`}>
                         <Icon name={completed ? "check" : "clock"} size={20} />
                       </span>
@@ -117,6 +160,15 @@ export function RecordsPanel({
                       </div>
                       <Icon name="chevron" size={18} className="shrink-0 text-placeholder" />
                     </Link>
+                    <Button
+                      variant="ghost"
+                      className="shrink-0 px-2 text-caption"
+                      aria-label={`${record.concept_title} 학습기록 삭제`}
+                      disabled={loadingMore || deleting}
+                      onClick={() => { setDeleteTarget(record); setDeleteError(""); }}
+                    >
+                      삭제
+                    </Button>
                   </li>
                 );
               })}
@@ -131,6 +183,17 @@ export function RecordsPanel({
             </div>
           )}
         </>
+      )}
+      {deleteTarget && (
+        <Modal title="학습기록 삭제" dismissible={false} onClose={() => !deletePending.current && setDeleteTarget(undefined)}>
+          <p className="text-body font-semibold text-text">{deleteTarget.concept_title} · {dateFormat.format(new Date(deleteTarget.started_at))}</p>
+          <p className="mt-3 text-body text-muted">이 기록의 대화와 판정을 영구 삭제합니다. 삭제한 기록은 복구할 수 없어요.</p>
+          {deleteError && <p role="alert" className="mt-3 text-caption text-danger">{deleteError}</p>}
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="ghost" disabled={deleting} onClick={() => setDeleteTarget(undefined)}>취소</Button>
+            <Button variant="danger" disabled={deleting} onClick={() => void removeRecord()}>{deleting ? "삭제 중…" : "삭제하기"}</Button>
+          </div>
+        </Modal>
       )}
     </section>
   );

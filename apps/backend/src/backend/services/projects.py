@@ -91,23 +91,26 @@ async def _summaries(db: AsyncSession, projects: Sequence[Project]) -> list[Proj
         .where(Message.session_id == Session.id, Message.role == MessageRole.ANSWER)
         .exists()
     )
+    recent_project_id = func.coalesce(Material.project_id, Session.archived_project_id)
     recent = (
         select(
-            Material.project_id,
-            Concept.title,
+            recent_project_id.label("project_id"),
+            func.coalesce(Concept.title, Session.archived_view["concept_title"].astext).label(
+                "title"
+            ),
             Session.started_at,
             func.row_number()
             .over(
-                partition_by=Material.project_id,
+                partition_by=recent_project_id,
                 order_by=(Session.started_at.desc(), Session.id.desc()),
             )
             .label("position"),
         )
         .select_from(Session)
-        .join(Concept, Concept.id == Session.concept_id)
-        .join(Material, Material.id == Concept.material_id)
-        .join(Project, Project.id == Material.project_id)
-        .where(Material.project_id.in_(ids), Session.user_id == Project.user_id, answered)
+        .outerjoin(Concept, Concept.id == Session.concept_id)
+        .outerjoin(Material, Material.id == Concept.material_id)
+        .join(Project, Project.id == recent_project_id)
+        .where(Project.id.in_(ids), Session.user_id == Project.user_id, answered)
         .subquery()
     )
     recent_rows = await db.execute(select(recent).where(recent.c.position == 1))
