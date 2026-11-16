@@ -238,6 +238,38 @@ async def answer(
     return await setup.client.post(f"{URL}/sessions/{sid}/answers", json={"text": text})
 
 
+async def test_answer_confidence_records_metadata_without_exposing_it_to_evaluator(
+    setup: Setup,
+) -> None:
+    sid = await start(setup)
+    endpoint = f"{URL}/sessions/{sid}/answers"
+    invalid = await setup.client.post(endpoint, json={"text": "설명", "confidence": "certain"})
+    assert invalid.status_code == 400
+    assert invalid.json()["error"]["code"] == "validation_error"
+    assert not setup.provider.inputs
+
+    first = await setup.client.post(endpoint, json={"text": "첫 설명", "confidence": "high"})
+    assert first.status_code == 200, first.text
+    setup.provider.verdict = Verdict.MET
+    second = await answer(setup, sid, "두 번째 설명")
+    assert second.status_code == 200, second.text
+
+    result = await setup.client.get(f"{URL}/sessions/{sid}/result")
+    assert result.status_code == 200, result.text
+    body = result.json()
+    answers = [message for message in body["messages"] if message["role"] == "answer"]
+    assert [message["confidence"] for message in answers] == ["high", None]
+    assert all(
+        message["confidence"] is None
+        for message in body["messages"]
+        if message["role"] == "question"
+    )
+    assert [assessment["answer_message_id"] for assessment in body["assessments"]] == [
+        message["id"] for message in answers
+    ]
+    assert "confidence" not in json.dumps(setup.provider.inputs)
+
+
 async def test_four_assessments_privacy_cumulative_context_and_result(setup: Setup) -> None:
     listing = await setup.client.get(f"{URL}/projects/{setup.project_id}/concepts")
     assert len(listing.json()["items"]) == 2

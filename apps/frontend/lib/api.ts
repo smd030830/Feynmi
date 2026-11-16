@@ -149,12 +149,15 @@ export type Concept = {
   id: string; title: string; description: string; state: ConceptState; score: number | null;
   material_id: string; material_title: string;
 };
+export type AnswerConfidence = Schemas["AnswerConfidence"];
 export type LearningMessage = {
   id: string; seq: number; role: "question" | "answer"; text: string; created_at: string;
+  confidence?: AnswerConfidence | null;
 };
 export type Evidence = { id: string; material_title: string; page_start: number; page_end: number };
 export type Assessment = {
   id: string; seq: number; state: ConceptState; score: number; created_at: string;
+  answer_message_id?: string | null;
   elements: {
     element_id: string; text: string; importance: "core" | "supporting";
     verdict: "met" | "partial" | "missing" | "contradicted";
@@ -232,9 +235,9 @@ export function getWeeklySummary() {
 export function getSessionResult(id: string) {
   return apiFetch<LearningSession>(`/sessions/${encodeURIComponent(id)}/result`);
 }
-export function submitAnswer(id: string, text: string) {
+export function submitAnswer(id: string, text: string, confidence?: AnswerConfidence) {
   return apiFetch<LearningSession>(`/sessions/${encodeURIComponent(id)}/answers`, {
-    method: "POST", body: JSON.stringify({ text }),
+    method: "POST", body: JSON.stringify({ text, confidence }),
   });
 }
 export function abortSession(id: string) {

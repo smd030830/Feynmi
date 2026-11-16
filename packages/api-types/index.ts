@@ -3,7 +3,8 @@
 // Paths contains request body and response body types directly, keyed by HTTP status.
 
 export type Schemas = {
-  "AnswerInput": { "text": string; };
+  "AnswerConfidence": ("high") | ("uncertain") | ("low");
+  "AnswerInput": { "confidence"?: (Schemas["AnswerConfidence"]) | (null); "text": string; };
   "AvatarResponse": { "avatar_url": string; };
   "DeleteAccount": { "confirm": "탈퇴"; };
   "FailureCode": ("unsupported_format") | ("file_too_large") | ("too_many_pages") | ("no_extractable_text") | ("corrupted_file") | ("llm_failed") | ("ai_unavailable") | ("internal_error");

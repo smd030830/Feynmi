@@ -568,8 +568,8 @@ erDiagram
 | `concept_elements` | `concept_id`, `ordinal`, `text`, `importance`(core/supporting), `evidence_chunk_ids uuid[]` | |
 | `concept_misconceptions` | `concept_id`, `text`, `evidence_chunk_ids uuid[]` | |
 | `sessions` | `user_id`, `concept_id`, `status`(in_progress/completed/aborted), `end_reason`, `followups_used`, `evaluating_since`, `started_at`, `ended_at` | **부분 유니크 인덱스** `(user_id) WHERE status='in_progress'` |
-| `messages` | `session_id`, `seq`, `role`(answer/question), `text`, `created_at` | unique `(session_id, seq)` |
-| `assessments` | `session_id`, `seq`, `state`, `score`, `model_id`, `raw_output jsonb`, `created_at` | 이력 보존 (PRD 6.1④). `raw_output`은 판정 품질 점검용. 인덱스 `(created_at)`(학습 통계) |
+| `messages` | `session_id`, `seq`, `role`(answer/question), `text`, `confidence`(답변에만 선택적으로 저장), `created_at` | unique `(session_id, seq)` |
+| `assessments` | `session_id`, `answer_message_id`(판정을 요청한 답변, 이전 기록은 null), `seq`, `state`, `score`, `model_id`, `raw_output jsonb`, `created_at` | 이력 보존 (PRD 6.1④). `raw_output`은 판정 품질 점검용. 인덱스 `(created_at)`(학습 통계) |
 | `assessment_elements` | `assessment_id`, `element_id`, `verdict`, `learner_quote`, `evidence_chunk_ids uuid[]`, `note` | |
 | `feedbacks` | `assessment_id`(unique), `correct jsonb`, `missing_hint jsonb`, `missing jsonb`, `incorrect jsonb`, `supplement`, `summary_points jsonb`, `unverified_statements jsonb` | |
 

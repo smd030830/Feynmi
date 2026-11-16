@@ -25,6 +25,7 @@ from backend.db.models import (
     UserSettings,
 )
 from backend.domain.enums import (
+    AnswerConfidence,
     ConceptState,
     EndReason,
     Importance,
@@ -446,6 +447,7 @@ async def session_view(
         items.append(
             {
                 "id": assessment.id,
+                "answer_message_id": assessment.answer_message_id,
                 "seq": assessment.seq,
                 "state": assessment.state,
                 "score": assessment.score,
@@ -471,6 +473,7 @@ async def session_view(
                 "seq": m.seq,
                 "role": m.role,
                 "text": m.text,
+                "confidence": m.confidence,
                 "created_at": m.created_at,
             }
             for m in messages
@@ -498,6 +501,7 @@ async def submit_answer(
     provider: LLMProvider,
     *,
     model_id: str,
+    confidence: AnswerConfidence | None = None,
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
 ) -> dict[str, Any]:
     await _lock_user(db, user_id)
@@ -527,7 +531,11 @@ async def submit_answer(
     depth = settings.question_depth if settings else QuestionDepth.BASIC
     seq = await db.scalar(select(func.max(Message.seq)).where(Message.session_id == session_id))
     answer_message = Message(
-        session_id=session_id, seq=(seq or 0) + 1, role=MessageRole.ANSWER, text=text
+        session_id=session_id,
+        seq=(seq or 0) + 1,
+        role=MessageRole.ANSWER,
+        text=text,
+        confidence=confidence,
     )
     db.add(answer_message)
     lease = datetime.now(UTC)
@@ -638,6 +646,7 @@ async def submit_answer(
         )
         assessment = Assessment(
             session_id=session_id,
+            answer_message_id=answer_message_id,
             seq=count or 0,
             state=state,
             score=score,
