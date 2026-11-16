@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
 import { MaterialsPanel } from "@/components/materials-panel";
@@ -11,7 +11,8 @@ import { ProgressRing } from "@/components/progress-ring";
 import { ProjectTile } from "@/components/project-tile";
 import { StateDistributionBar } from "@/components/state-distribution-bar";
 import { StateBadge } from "@/components/learning-feedback";
-import { ApiError, apiErrorMessage, getProject, listConcepts, listRecords, listMaterials, startSession, type Concept, type Project, type RecordPage, type Material } from "@/lib/api";
+import { ApiError, apiErrorMessage, getProject, listConcepts, listRecords, listMaterials, type Concept, type Project, type RecordPage, type Material } from "@/lib/api";
+import { useStartLearning } from "@/lib/use-start-learning";
 
 const tabs = [
   { key: "concepts", label: "개념" },
@@ -29,7 +30,6 @@ function tabCount(project: Project, tab: TabKey, recordTotal?: number) {
 
 export function ProjectDetailView() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const tab: TabKey = tabs.some((t) => t.key === tabParam) ? (tabParam as TabKey) : "concepts";
@@ -37,10 +37,8 @@ export function ProjectDetailView() {
   // undefined: 불러오는 중
   const [loaded, setLoaded] = useState<{ id: string; project?: Project; concepts?: Concept[]; records?: RecordPage; materials?: Material[]; recordTotal?: number; recommendedId?: string; error?: unknown }>();
   const [attempt, setAttempt] = useState(0);
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState("");
+  const { begin, starting, startError } = useStartLearning();
   const [refreshError, setRefreshError] = useState("");
-  const pending = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,14 +55,6 @@ export function ProjectDetailView() {
   const current = loaded?.id === id ? loaded : undefined;
   const concepts = current?.concepts ?? [];
   const nextConcept = concepts.find((concept) => concept.id === current?.recommendedId);
-  async function begin(conceptId: string) {
-    if (pending.current) return;
-    pending.current = true;
-    setStarting(true); setStartError("");
-    try { const session = await startSession(conceptId); router.push(`/sessions/${session.id}`); }
-    catch (err) { pending.current = false; setStartError(apiErrorMessage(err)); setStarting(false); }
-  }
-
   // 자료를 올리면 탭과 머리글의 자료 수를 맞춘다
   const setMaterialCount = useCallback(
     (count: number) =>

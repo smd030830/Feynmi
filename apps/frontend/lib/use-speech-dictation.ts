@@ -8,6 +8,7 @@ type RecognitionResult = {
 type SpeechRecognition = {
   lang: string;
   continuous: boolean;
+  interimResults: boolean;
   onresult: ((event: { resultIndex: number; results: ArrayLike<RecognitionResult> }) => void) | null;
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;
@@ -40,13 +41,14 @@ function recognitionError(error: string) {
 }
 
 export function useSpeechDictation(sessionId: string, append: (text: string) => void) {
-  const recognition = useRef<SpeechRecognition | null>(null);
+  const recognition = useRef<{ instance: SpeechRecognition; stopping: boolean } | null>(null);
   const [state, setState] = useState<"idle" | "listening" | "stopping">("idle");
   const [message, setMessage] = useState("");
 
   const abort = useCallback(() => {
-    const instance = recognition.current;
-    if (!instance) return;
+    const current = recognition.current;
+    if (!current) return;
+    const { instance } = current;
     recognition.current = null;
     instance.onresult = instance.onerror = instance.onend = null;
     instance.abort();
@@ -75,33 +77,57 @@ export function useSpeechDictation(sessionId: string, append: (text: string) => 
       instance = new Recognition();
       instance.lang = "ko-KR";
       instance.continuous = true;
+      instance.interimResults = true;
+      const current = { instance, stopping: false };
+      const interim = new Map<number, string>();
       let receivedSpeech = false;
       let failed = false;
 
       instance.onresult = ({ resultIndex, results }) => {
-        if (recognition.current !== instance) return;
+        if (recognition.current !== current) return;
         const phrases: string[] = [];
         for (let index = resultIndex; index < results.length; index++) {
           const result = results[index];
-          if (result.isFinal && result[0].transcript.trim()) phrases.push(result[0].transcript.trim());
+          const text = result[0].transcript.trim();
+          if (result.isFinal) {
+            interim.delete(index);
+            if (text) phrases.push(text);
+          } else if (text) {
+            interim.set(index, text);
+          }
+        }
+        // Some browsers clear the interim results while stopping without delivering a final result.
+        if (!current.stopping || phrases.length) {
+          for (const index of interim.keys()) {
+            if (index >= results.length) interim.delete(index);
+          }
         }
         if (phrases.length === 0) return;
         receivedSpeech = true;
         append(phrases.join(" "));
       };
       instance.onerror = ({ error }) => {
-        if (recognition.current !== instance) return;
+        if (recognition.current !== current) return;
         failed = true;
         setMessage(recognitionError(error));
       };
       instance.onend = () => {
-        if (recognition.current !== instance) return;
+        if (recognition.current !== current) return;
         recognition.current = null;
         setState("idle");
-        if (!failed && !receivedSpeech) setMessage(recognitionError("no-speech"));
+        const tail = [...interim.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, text]) => text)
+          .join(" ");
+        if (tail) {
+          append(tail);
+          if (!failed) setMessage("마지막 말은 임시 인식 결과로 넣었어요. 보내기 전에 확인해주세요.");
+        } else if (!failed && !receivedSpeech) {
+          setMessage(recognitionError("no-speech"));
+        }
       };
 
-      recognition.current = instance;
+      recognition.current = current;
       setMessage("");
       setState("listening");
       instance.start();
@@ -112,9 +138,11 @@ export function useSpeechDictation(sessionId: string, append: (text: string) => 
   }
 
   function stop() {
-    if (!recognition.current || state !== "listening") return;
+    const current = recognition.current;
+    if (!current || current.stopping) return;
+    current.stopping = true;
     setState("stopping");
-    recognition.current.stop();
+    current.instance.stop();
   }
 
   return { state, message, start, stop, abort, isActive: () => recognition.current !== null };

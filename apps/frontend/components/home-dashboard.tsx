@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
 import { LearningOverview } from "@/components/learning-overview";
@@ -10,7 +9,8 @@ import { StateBadge } from "@/components/learning-feedback";
 import { NewProjectModal } from "@/components/new-project-modal";
 import { NewProjectCard, ProjectCard } from "@/components/project-card";
 import { ProjectTile } from "@/components/project-tile";
-import { apiErrorMessage, getHome, startSession, type HomeData } from "@/lib/api";
+import { apiErrorMessage, getHome, type HomeData } from "@/lib/api";
+import { useStartLearning } from "@/lib/use-start-learning";
 
 const cycle: { icon: IconName; label: string; tone: string }[] = [
   { icon: "book", label: "개념", tone: "bg-primary-soft text-primary" },
@@ -19,14 +19,11 @@ const cycle: { icon: IconName; label: string; tone: string }[] = [
 ];
 
 export function HomeDashboard() {
-  const router = useRouter();
   const [home, setHome] = useState<HomeData>();
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState("");
-  const pending = useRef(false);
+  const { begin, starting, startError } = useStartLearning();
 
   useEffect(() => {
     let active = true;
@@ -36,21 +33,6 @@ export function HomeDashboard() {
     );
     return () => { active = false; };
   }, [attempt]);
-
-  async function begin(conceptId: string) {
-    if (pending.current) return;
-    pending.current = true;
-    setStarting(true);
-    setStartError("");
-    try {
-      const session = await startSession(conceptId);
-      router.push(`/sessions/${session.id}`);
-    } catch (reason) {
-      setStartError(apiErrorMessage(reason));
-      pending.current = false;
-      setStarting(false);
-    }
-  }
 
   if (error) return (
     <div role="alert" className="flex items-center justify-between gap-4 rounded-control bg-danger-soft p-4">
