@@ -143,7 +143,7 @@ export function SessionView() {
     <div className={ended ? "" : "grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-6"}>
       <section className="min-w-0 space-y-6"><div className="flex justify-between"><h2 className="text-heading font-bold">{ended ? "중단된 학습의 대화" : "설명하며 이해하기"}</h2>{pending && <span role="status" className="text-caption text-primary-strong">대화 분석 중…</span>}</div>
         <Conversation messages={session.messages} assessments={session.assessments} />
-        {!ended ? <form onSubmit={send} className="sticky bottom-5 min-w-0 rounded-card border border-primary-line bg-surface p-4 shadow-brand sm:p-5">
+        {!ended ? <form onSubmit={send} className="min-w-0 rounded-card border border-primary-line bg-surface p-4 shadow-brand sm:p-5">
           <p className="text-caption font-bold text-primary-strong">현재 질문</p><p className="mt-1 text-body text-muted">{currentQuestion}</p>
           <label htmlFor="learner-answer" className="sr-only">나의 설명</label><textarea id="learner-answer" value={answer} onChange={(e) => setAnswer(e.target.value)} disabled={pending} placeholder="내 말로 설명해보세요..." className="mt-4 min-h-36 w-full resize-y rounded-control border border-line p-4 text-body-lg disabled:opacity-60" onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void send(); } }} />
           <fieldset disabled={pending} className="mt-3 disabled:opacity-60">
