@@ -236,10 +236,10 @@ async def test_pdf_is_uploaded_analyzed_and_readable(
     )
 
     [item] = await materials(client, project)  # 분석은 응답 뒤 바로 끝난다
-    assert item["status"] == "ready"
+    assert item["status"] == "failed"
     assert item["page_count"] == 2
-    assert item["failure_code"] is None
-    assert item["chunk_count"] == 0  # 키가 없으면 임베딩을 건너뛴다
+    assert item["failure_code"] == "ai_unavailable"
+    assert item["chunk_count"] == 0  # AI 설정이 없으면 완료로 처리하지 않는다
 
     project_res = await client.get(f"{API_PREFIX}/projects/{project}", headers=auth(ALICE))
     assert project_res.json()["material_count"] == 1
@@ -250,7 +250,8 @@ async def test_image_upload_is_read_by_ocr(client: httpx.AsyncClient, project: s
         client, project, "필기.JPEG", png()
     )  # 확장자 대소문자 무관, 실제 형식은 내용으로 판단
     [item] = await materials(client, project)
-    assert (item["file_type"], item["status"], item["page_count"]) == ("jpg", "ready", 1)
+    assert (item["file_type"], item["status"], item["page_count"]) == ("jpg", "failed", 1)
+    assert item["failure_code"] == "ai_unavailable"
 
 
 async def test_newest_material_is_listed_first(client: httpx.AsyncClient, project: str) -> None:
@@ -328,7 +329,7 @@ async def test_complete_before_upload_is_rejected_then_works(
     STORAGE.put(res.json()["upload_url"], make_pdf(["프로세스"]))
     assert (await complete(client, material_id)).status_code == 202
     [item] = await materials(client, project)
-    assert item["status"] == "ready"
+    assert (item["status"], item["failure_code"]) == ("failed", "ai_unavailable")
 
 
 async def test_complete_twice_does_not_analyze_twice(
@@ -436,11 +437,13 @@ async def test_retry_only_from_failed_and_uses_kept_original(
     res = await client.post(f"{API_PREFIX}/materials/{failed['id']}/retry", headers=auth(ALICE))
     assert res.status_code == 202
     [item] = await materials(client, project)
-    assert (item["status"], item["failure_code"]) == ("ready", None)
+    assert (item["status"], item["failure_code"]) == ("failed", "ai_unavailable")
 
     again = await client.post(f"{API_PREFIX}/materials/{failed['id']}/retry", headers=auth(ALICE))
-    assert again.status_code == 409
-    assert again.json()["error"]["code"] == "invalid_state"
+    assert again.status_code == 202  # AI 미설정으로 여전히 실패 상태이므로 다시 시도할 수 있다
+    [retried] = await materials(client, project)
+    assert (retried["status"], retried["failure_code"]) == ("failed", "ai_unavailable")
+    assert again.json()["status"] == "queued"
 
 
 # --- 본인 자료만 (FR-4.2) ---
@@ -644,7 +647,8 @@ async def test_short_material_can_have_a_single_concept(
 async def test_no_key_means_no_concepts(client: httpx.AsyncClient, project: str) -> None:
     await upload(client, project, "강의.pdf", make_pdf(["프로세스"]))  # 기본은 키 없음
     [item] = await materials(client, project)
-    assert (item["status"], item["chunk_count"]) == ("ready", 0)
+    assert (item["status"], item["chunk_count"]) == ("failed", 0)
+    assert item["failure_code"] == "ai_unavailable"
     assert await concepts(client, project) == []
 
 
@@ -689,13 +693,14 @@ async def test_stalled_analysis_is_reported_as_failed_and_can_retry(
         "internal_error",
     )
     assert by_title["방금.pdf"]["status"] == "extracting"  # 데드라인 전이면 그대로
-    assert by_title["완료.pdf"]["status"] == "ready"
+    assert by_title["완료.pdf"]["status"] == "failed"
+    assert by_title["완료.pdf"]["failure_code"] == "ai_unavailable"
     retry = await client.post(
         f"{API_PREFIX}/materials/{by_title['도중.pdf']['id']}/retry", headers=auth(ALICE)
     )
     assert retry.status_code == 202
     statuses = {m["title"]: m["status"] for m in await materials(client, project)}
-    assert statuses["도중.pdf"] == "ready"
+    assert statuses["도중.pdf"] == "failed"  # 재시도해도 AI 설정이 없으면 완료될 수 없다
 
 
 # --- Cloud Tasks 모드 (architecture 7.1, 8.1 /internal) ---
@@ -735,11 +740,12 @@ async def test_cloud_tasks_mode_enqueues_and_worker_analyzes(
 
     assert (await run_task(client, str(material_id), attempt)).status_code == 200
     [item] = await materials(client, project)
-    assert (item["status"], item["page_count"]) == ("ready", 1)
+    assert (item["status"], item["page_count"]) == ("failed", 1)
+    assert item["failure_code"] == "ai_unavailable"
 
     # 같은 작업이 다시 와도(재전달) 이미 끝났으면 무시한다
     assert (await run_task(client, str(material_id), attempt)).status_code == 200
-    assert (await materials(client, project))[0]["status"] == "ready"
+    assert (await materials(client, project))[0]["status"] == "failed"
 
 
 async def test_worker_requires_the_task_token(
@@ -761,7 +767,8 @@ async def test_worker_reruns_after_an_interrupted_delivery(
         await db.execute(update(Material).values(status="extracting"))
         await db.commit()
     await run_task(client, str(material_id), attempt)
-    assert (await materials(client, project))[0]["status"] == "ready"
+    [item] = await materials(client, project)
+    assert (item["status"], item["failure_code"]) == ("failed", "ai_unavailable")
 
 
 async def test_old_attempt_is_ignored(

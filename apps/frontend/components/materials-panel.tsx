@@ -7,6 +7,7 @@ import { Icon } from "@/components/icon";
 import { Modal } from "@/components/modal";
 import {
   apiErrorMessage,
+  deleteMaterial,
   failureMessage,
   giveAiConsent,
   listMaterials,
@@ -54,6 +55,10 @@ export function MaterialsPanel({
   const [uploading, setUploading] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null); // 동의를 기다리는 파일
+  const [deleteTarget, setDeleteTarget] = useState<Material | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const deletePending = useRef(false);
   const input = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -144,6 +149,24 @@ export function MaterialsPanel({
     setRetrying(new Set(retryPending.current));
   }
 
+  async function remove() {
+    if (!deleteTarget || deletePending.current) return;
+    deletePending.current = true;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteMaterial(deleteTarget.id);
+      setItems((previous) => previous?.filter((item) => item.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      await refresh();
+    } catch (error) {
+      setDeleteError(apiErrorMessage(error));
+    } finally {
+      deletePending.current = false;
+      setDeleting(false);
+    }
+  }
+
   function onDrop(event: DragEvent) {
     event.preventDefault();
     setDragging(false);
@@ -232,7 +255,7 @@ export function MaterialsPanel({
       {items && items.length > 0 && (
         <ul className="flex flex-col divide-y divide-line rounded-card border border-line bg-surface">
           {items.map((m) => (
-            <MaterialRow key={m.id} material={m} onRetry={retry} retrying={retrying.has(m.id)} />
+            <MaterialRow key={m.id} material={m} onRetry={retry} retrying={retrying.has(m.id)} onDelete={(material) => { setDeleteError(""); setDeleteTarget(material); }} />
           ))}
         </ul>
       )}
@@ -241,6 +264,18 @@ export function MaterialsPanel({
         <Icon name="shield" size={16} className="text-placeholder" />
         업로드한 자료는 {projectName} 프로젝트의 개념 분석과 질문 생성에만 사용됩니다.
       </p>
+
+      {deleteTarget && (
+        <Modal title="학습자료 삭제" dismissible={false} onClose={() => !deletePending.current && setDeleteTarget(null)}>
+          <p className="break-words text-body font-semibold text-text">{deleteTarget.title}</p>
+          <p className="mt-3 text-body text-muted">원본 파일과 이 자료에서 생성한 개념, 관련 학습 기록이 함께 삭제됩니다. 삭제 후에는 복구할 수 없어요.</p>
+          {deleteError && <p role="alert" className="mt-3 text-caption text-danger">{deleteError}</p>}
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>취소</Button>
+            <Button variant="danger" disabled={deleting} onClick={() => void remove()}>{deleting ? "삭제 중…" : "삭제하기"}</Button>
+          </div>
+        </Modal>
+      )}
 
       {pendingFiles && (
         <Modal title="외부 AI 전송 안내" onClose={() => setPendingFiles(null)}>
@@ -271,10 +306,12 @@ function MaterialRow({
   material: m,
   onRetry,
   retrying,
+  onDelete,
 }: {
   material: Material;
   onRetry: (m: Material) => void;
   retrying: boolean;
+  onDelete: (m: Material) => void;
 }) {
   const working = IN_PROGRESS.includes(m.status);
   const badge =
@@ -316,6 +353,7 @@ function MaterialRow({
           {retrying ? "다시 분석 중…" : "재시도"}
         </Button>
       )}
+      <Button variant="ghost" disabled={working || retrying} title={working ? "업로드·분석 완료 후 삭제할 수 있어요" : undefined} aria-label={`${m.title} 삭제`} onClick={() => onDelete(m)}>삭제</Button>
     </li>
   );
 }

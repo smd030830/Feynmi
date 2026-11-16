@@ -50,6 +50,12 @@ class MaterialStorage(Protocol):
     def load(self, key: str) -> bytes: ...
 
 
+class MaterialDeletionStorage(Protocol):
+    def delete(self, key: str) -> None:
+        """원본을 삭제한다. 이미 없는 객체도 성공으로 처리한다."""
+        ...
+
+
 def material_key(
     user_id: uuid.UUID, project_id: uuid.UUID, material_id: uuid.UUID, ext: str
 ) -> str:

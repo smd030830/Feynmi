@@ -1,0 +1,71 @@
+name: Deploy production
+
+# CI 전체가 성공한 main push만 운영 배포한다. PR의 코드는 배포 자격 증명을 받지 않는다.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT: feynmi-study-20261115-d7d0d
+  GCP_REGION: asia-northeast3
+
+jobs:
+  backend:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Skip superseded main commits
+        id: current
+        run: |
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [[ "$latest" == "$DEPLOY_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "A newer main commit exists; skipping this deployment."
+          fi
+      - name: Authenticate without a service account key
+        if: steps.current.outputs.deploy == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - if: steps.current.outputs.deploy == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Build and publish the tested backend
+        if: steps.current.outputs.deploy == 'true'
+        run: |
+          gcloud auth configure-docker "$GCP_REGION-docker.pkg.dev" --quiet
+          image="$GCP_REGION-docker.pkg.dev/$GCP_PROJECT/feynmi-images/api:$DEPLOY_SHA"
+          docker build --target prod --tag "$image" apps/backend
+          docker push "$image"
+      - name: Migrate, deploy and verify backend
+        id: deploy
+        if: steps.current.outputs.deploy == 'true'
+        run: bash scripts/deploy_backend.sh
+

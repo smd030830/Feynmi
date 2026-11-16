@@ -184,22 +184,31 @@ async def finish_deletion(
         await db.commit()
 
 
-async def retry_deletions(factory: async_sessionmaker[AsyncSession], cloud: AccountCloud) -> None:
-    """A durable deleting row survives token expiry, crashes and Firebase deletion."""
-    while True:
+async def retry_deletions_once(
+    factory: async_sessionmaker[AsyncSession], cloud: AccountCloud
+) -> bool:
+    """Attempt one finite snapshot of pending deletions, without waiting or looping forever."""
+    try:
+        async with factory() as db:
+            ids = list(await db.scalars(select(User.id).where(User.status == UserStatus.DELETING)))
+    except Exception:
+        logger.warning("Account deletion recovery scan failed")
+        return False
+    complete = True
+    for user_id in ids:
         try:
-            async with factory() as db:
-                ids = list(
-                    await db.scalars(select(User.id).where(User.status == UserStatus.DELETING))
-                )
-            for user_id in ids:
-                try:
-                    await finish_deletion(factory, cloud, user_id)
-                except Exception:
-                    # No UID, token, paths, or user data in operational logs.
-                    logger.warning("Account deletion retry failed")
+            await finish_deletion(factory, cloud, user_id)
         except Exception:
-            logger.warning("Account deletion recovery scan failed")
+            # No UID, token, paths, or user data in operational logs.
+            logger.warning("Account deletion retry failed")
+            complete = False
+    return complete
+
+
+async def retry_deletions(factory: async_sessionmaker[AsyncSession], cloud: AccountCloud) -> None:
+    """Local recovery keeps the existing 30-second loop; scheduled recovery calls one pass."""
+    while True:
+        await retry_deletions_once(factory, cloud)
         await asyncio.sleep(30)
 
 

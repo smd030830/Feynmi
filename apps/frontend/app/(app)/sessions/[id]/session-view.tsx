@@ -8,6 +8,7 @@ import { Conversation, StateBadge } from "@/components/learning-feedback";
 import { Modal } from "@/components/modal";
 import { abortSession, abortSessionOnExit, apiErrorMessage, getSession, startSession, submitAnswer, type LearningSession } from "@/lib/api";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { useSpeechDictation } from "@/lib/use-speech-dictation";
 
 const steps = ["개념 설명", "추가 질문 1", "추가 질문 2", "추가 질문 3", "정리"];
 const verdictLabels = { met: "충족", partial: "부분", missing: "누락", contradicted: "모순" };
@@ -22,6 +23,8 @@ export function SessionView() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
+  const { state: speechState, message: speechMessage, start: startSpeech, stop: stopSpeech, abort: abortSpeech, isActive: speechIsActive } =
+    useSpeechDictation(id, (text) => setAnswer((draft) => draft && !/\s$/.test(draft) ? `${draft} ${text}` : draft + text));
   const live = useRef<{ session?: LearningSession; pending: boolean; token: string }>({ pending: false, token: "" });
   const session = loaded?.id === id ? loaded.session : undefined;
 
@@ -66,6 +69,7 @@ export function SessionView() {
       event.preventDefault();
       event.stopPropagation();
       if (live.current.pending) { setError("설명을 분석 중이에요. 분석이 끝나면 이동할 수 있어요."); return; }
+      abortSpeech();
       live.current.pending = true;
       setPending(true);
       void abortSession(id).then((updated) => {
@@ -89,11 +93,11 @@ export function SessionView() {
       window.removeEventListener("popstate", exit);
       document.removeEventListener("click", navigate, true);
     };
-  }, [id, pathname, router]);
+  }, [abortSpeech, id, pathname, router]);
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
-    if (!answer.trim() || live.current.pending || session?.status !== "in_progress") return;
+    if (!answer.trim() || speechIsActive() || live.current.pending || session?.status !== "in_progress") return;
     live.current.pending = true;
     setPending(true); setError("");
     try {
@@ -107,6 +111,7 @@ export function SessionView() {
   }
   async function finish() {
     if (live.current.pending) return;
+    abortSpeech();
     live.current.pending = true;
     setPending(true); setError("");
     try { const updated = await abortSession(id); live.current.session = updated; live.current.pending = false; setPending(false); setLoaded({ id, session: updated }); setConfirmExit(false); router.push(`/projects/${updated.project_id}`); }
@@ -128,7 +133,7 @@ export function SessionView() {
   const evidence = [...new Map(latest?.elements.flatMap((e) => e.evidence).map((e) => [e.id, e]) ?? []).values()];
 
   return <div className="space-y-7">
-    <div className="flex items-center justify-between"><Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>{!ended && <Button variant="soft" disabled={pending} onClick={() => setConfirmExit(true)}>학습 종료</Button>}</div>
+    <div className="flex items-center justify-between"><Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>학습 종료</Button>}</div>
     <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="text-caption text-subtle">{ended ? "중단된 학습" : `추가 질문 ${Math.max(0, 3 - session.followups_used)}회 남음`}</span></header>
     {!ended && <ol className="flex rounded-card border border-line bg-surface p-4" aria-label="학습 단계">{steps.map((step, i) => <li key={step} aria-current={i === session.followups_used ? "step" : undefined} className={`flex-1 text-center text-caption font-bold ${i === session.followups_used ? "text-primary-strong" : "text-subtle"}`}><span className={`mx-auto mb-2 flex size-7 items-center justify-center rounded-full ${i <= session.followups_used ? "bg-primary-soft text-primary-strong" : "bg-canvas"}`}>{i + 1}</span>{step}</li>)}</ol>}
     {error && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error}</p>}
@@ -138,7 +143,24 @@ export function SessionView() {
         {!ended ? <form onSubmit={send} className="sticky bottom-5 rounded-card border border-primary-line bg-surface p-5 shadow-brand">
           <p className="text-caption font-bold text-primary-strong">현재 질문</p><p className="mt-1 text-body text-muted">{currentQuestion}</p>
           <label htmlFor="learner-answer" className="sr-only">나의 설명</label><textarea id="learner-answer" value={answer} onChange={(e) => setAnswer(e.target.value)} disabled={pending} placeholder="내 말로 설명해보세요..." className="mt-4 min-h-36 w-full resize-y rounded-control border border-line p-4 text-body-lg disabled:opacity-60" onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void send(); } }} />
-          <div className="mt-3 flex items-center justify-between gap-3"><p className="text-micro text-subtle">학습자료를 보지 않고 설명해보세요<br />{answer.length}자 · Ctrl+Enter</p><Button type="submit" disabled={pending || !answer.trim()}>{pending ? "분석 중…" : "설명 보내기"}</Button></div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-micro text-subtle">학습자료를 보지 않고 설명해보세요<br />{answer.length}자 · Ctrl+Enter</p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="soft"
+                aria-describedby="speech-input-help"
+                disabled={pending || speechState === "stopping"}
+                onClick={speechState === "listening" ? stopSpeech : startSpeech}
+              >
+                {speechState === "listening" ? "음성 입력 중지" : speechState === "stopping" ? "음성 처리 중…" : "음성으로 입력"}
+              </Button>
+              <Button type="submit" disabled={pending || speechState !== "idle" || !answer.trim()}>{pending ? "분석 중…" : "설명 보내기"}</Button>
+            </div>
+          </div>
+          <p id="speech-input-help" className="mt-3 text-micro text-subtle">음성은 브라우저의 음성 인식 서비스에서 처리될 수 있어요.</p>
+          <p role="status" className={speechMessage || speechState !== "idle" ? "mt-2 text-caption text-muted" : "sr-only"}>
+            {speechMessage || (speechState === "listening" ? "듣고 있어요. 설명을 마치면 음성 입력을 중지해주세요." : speechState === "stopping" ? "마지막 음성을 텍스트로 바꾸고 있어요." : "")}
+          </p>
           <p className="mt-3 text-micro text-subtle">정답을 맞히려 하지 않아도 괜찮아요. 지금 이해한 만큼 자신의 언어로 설명해주세요.</p>
         </form> : <div className="flex justify-end"><Button disabled={pending} onClick={restart}>이 개념 다시 학습하기</Button></div>}
       </section>

@@ -16,7 +16,13 @@ from backend.db.models import Chunk, Concept, ConceptElement, Material, Project,
 from backend.domain.enums import FailureCode, FileType, MaterialStatus
 from backend.errors import AppError
 from backend.ingest import MAX_FILE_BYTES
-from backend.storage import CONTENT_TYPES, MaterialStorage, UploadTarget, material_key
+from backend.storage import (
+    CONTENT_TYPES,
+    MaterialDeletionStorage,
+    MaterialStorage,
+    UploadTarget,
+    material_key,
+)
 
 # 확장자 → materials.file_type. 실제 형식은 분석할 때 파일 앞 바이트로 다시 확인한다.
 EXTENSIONS = {
@@ -66,6 +72,27 @@ async def owned_material(
     if material is None:
         raise AppError(404, "not_found", "material not found")
     return material
+
+
+async def delete_material(
+    db: AsyncSession,
+    storage: MaterialDeletionStorage,
+    user_id: uuid.UUID,
+    material_id: uuid.UUID,
+) -> None:
+    """원본과 연결된 개념·학습기록을 삭제한다. 진행 중 자료는 삭제하지 않는다."""
+    material = await owned_material(db, user_id, material_id, lock=True)
+    if material.status not in (MaterialStatus.READY, MaterialStatus.FAILED):
+        raise AppError(409, "material_busy", "wait for material processing to finish")
+    try:
+        await asyncio.to_thread(storage.delete, material.gcs_path)
+    except Exception:
+        await db.rollback()
+        raise AppError(
+            503, "storage_unavailable", "material deletion unavailable", retryable=True
+        ) from None
+    await db.delete(material)
+    await db.commit()
 
 
 def _file_type(filename: str) -> tuple[FileType, str]:

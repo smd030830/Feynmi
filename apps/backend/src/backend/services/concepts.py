@@ -26,6 +26,11 @@ CONCEPT_EXTRACTION_INSTRUCTIONS = """당신은 한국어 파인만 학습 코치
 학습자료가 정답 기준이다. 자료의 내용이 일반적인 설명과 달라 보여도 고치거나 바꾸지 않고
 자료에 적힌 대로 쓴다.
 title은 짧은 개념 이름이다. description은 기준 설명으로, 자료 내용만으로 2~4문장으로 쓴다.
+opening_question은 이 개념으로 학습을 시작할 때 사용할 열린 질문 한 개다. 자료에 실제로 나온
+사례·조건·비교·절차 중 하나를 짚고, 학습자가 그 상황에 개념을 적용하거나 이유를 자기 말로
+설명하도록 묻는다. 자료에 없는 사례·수치·조건을 만들지 않는다. 질문 안에 정답이나 기준 설명을
+넣지 않으며, 개념 이름만 바꾼 '무엇인지 설명해보세요' 같은 형식적인 질문은 쓰지 않는다.
+구체적인 상황이 없는 자료라면 실제 자료에서 대조한 내용이나 쓰인 용어를 연결해 질문한다.
 elements는 이 개념을 이해했다면 설명에 반드시 들어가야 할 요소 3~5개다. 요소 하나에는 확인할
 수 있는 주장 하나만 한 문장으로 쓴다. importance는 빠지면 이해했다고 볼 수 없으면 core, 덧붙이면
 좋은 보충이면 supporting이며 개념마다 core가 하나 이상 있어야 한다.
@@ -94,6 +99,7 @@ async def extract_concepts(
             ordinal=ordinal,
             title=item.title,
             description=item.description,
+            opening_question=item.opening_question,
         )
         db.add(concept)
         await db.flush()

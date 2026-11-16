@@ -49,6 +49,8 @@ const MESSAGES: Record<string, string> = {
   invalid_state: "이미 종료되었거나 현재 처리할 수 없는 요청입니다.",
   evaluation_in_progress: "설명을 분석하고 있어요. 잠시 후 다시 확인해주세요.",
   llm_failed: "AI 분석을 완료하지 못했어요. 작성한 답변은 보관되며 다시 보낼 수 있어요.",
+  off_topic_response: "현재 질문과 관련 없는 답변이에요. 학습 중인 개념을 내 말로 설명해주세요. 점수와 남은 질문 횟수는 바뀌지 않았어요.",
+  answer_filter_unavailable: "답변 관련성을 확인하지 못했어요. 입력한 내용을 그대로 두고 다시 시도해주세요. 점수와 남은 질문 횟수는 바뀌지 않았어요.",
   account_deleting: "회원 탈퇴를 처리하고 있어요. 잠시 후 다시 확인해주세요.",
   cloud_unavailable: "계정 서비스를 연결하지 못했어요. 잠시 후 다시 시도해주세요.",
   consent_required: "자료를 올리기 전에 외부 AI 전송 안내에 동의해주세요.",
@@ -60,6 +62,7 @@ const MESSAGES: Record<string, string> = {
   upload_failed: "파일을 올리지 못했어요. 네트워크를 확인한 뒤 다시 올려주세요.",
   upload_missing: "파일 업로드가 끝나지 않았어요. 다시 올려주세요.",
   storage_unavailable: "자료 저장소가 설정되지 않았어요. 관리자에게 문의해주세요.",
+  material_busy: "업로드나 분석이 진행 중인 자료는 완료된 뒤 삭제할 수 있어요.",
 };
 
 // 분석 실패 사유 (materials.failure_code, PRD FR-1.4, FR-1.7)
@@ -305,5 +308,9 @@ export function retryMaterial(materialId: string) {
   return apiFetch<Material>(`/materials/${encodeURIComponent(materialId)}/retry`, {
     method: "POST",
   });
+}
+
+export function deleteMaterial(materialId: string) {
+  return apiFetch<void>(`/materials/${encodeURIComponent(materialId)}`, { method: "DELETE" });
 }
 

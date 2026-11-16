@@ -42,11 +42,15 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     # 진행 상태로 이 시간을 넘긴 자료는 멈춘 것으로 보고 실패 처리한다 (Cloud Tasks 데드라인과 같게)
     analysis_deadline_minutes: int = Field(default=30, ge=1)
+    # 저비용 Cloud Run은 Scheduler 요청으로 삭제 재시도를 실행해 유휴 CPU를 요구하지 않는다.
+    deletion_recovery_mode: Literal["background", "scheduled"] = "background"
 
     @model_validator(mode="after")
     def _cloud_tasks_deadline(self) -> Self:
         if self.queue_mode == "cloud_tasks" and self.analysis_deadline_minutes > 30:
             raise ValueError("Cloud Tasks analysis deadline must not exceed 30 minutes")
+        if self.deletion_recovery_mode == "scheduled" and self.queue_mode != "cloud_tasks":
+            raise ValueError("Scheduled deletion recovery requires authenticated cloud_tasks mode")
         return self
 
     @field_validator("cors_origins", mode="before")
