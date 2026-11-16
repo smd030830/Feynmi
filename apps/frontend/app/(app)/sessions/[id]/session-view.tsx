@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { confidenceLabels, Conversation, StateBadge } from "@/components/learning-feedback";
 import { Modal } from "@/components/modal";
-import { abortSession, abortSessionOnExit, apiErrorMessage, getSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
+import { abortSession, abortSessionOnExit, apiErrorMessage, ApiError, getSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useSpeechDictation } from "@/lib/use-speech-dictation";
 import { useStartLearning } from "@/lib/use-start-learning";
@@ -24,6 +24,7 @@ export function SessionView() {
   const [confidenceDraft, setConfidenceDraft] = useState<{ id: string; value: AnswerConfidence }>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [answerError, setAnswerError] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
   const { begin, starting, startError } = useStartLearning();
   const { state: speechState, message: speechMessage, start: startSpeech, stop: stopSpeech, abort: abortSpeech, isActive: speechIsActive } =
@@ -102,13 +103,17 @@ export function SessionView() {
     event?.preventDefault();
     if (!answer.trim() || speechIsActive() || live.current.pending || session?.status !== "in_progress") return;
     live.current.pending = true;
-    setPending(true); setError("");
+    setPending(true); setError(""); setAnswerError("");
     try {
       const confidence = confidenceDraft?.id === id ? confidenceDraft.value : undefined;
       const updated = await submitAnswer(id, answer.trim(), confidence);
       setLoaded({ id, session: updated }); setAnswer(""); setConfidenceDraft(undefined);
     } catch (err) {
-      setError(apiErrorMessage(err));
+      if (err instanceof ApiError && ["off_topic_response", "answer_filter_unavailable"].includes(err.code)) {
+        setAnswerError(apiErrorMessage(err));
+      } else {
+        setError(apiErrorMessage(err));
+      }
       // 실패한 답변도 서버에 보관될 수 있으므로 대화를 다시 읽는다.
       try { setLoaded({ id, session: await getSession(id) }); } catch { /* 기존 대화와 입력을 유지한다. */ }
     } finally { live.current.pending = false; setPending(false); }
@@ -145,7 +150,17 @@ export function SessionView() {
         <Conversation messages={session.messages} assessments={session.assessments} />
         {!ended ? <form onSubmit={send} className="min-w-0 rounded-card border border-primary-line bg-surface p-4 shadow-brand sm:p-5">
           <p className="text-caption font-bold text-primary-strong">현재 질문</p><p className="mt-1 text-body text-muted">{currentQuestion}</p>
-          <label htmlFor="learner-answer" className="sr-only">나의 설명</label><textarea id="learner-answer" value={answer} onChange={(e) => setAnswer(e.target.value)} disabled={pending} placeholder="내 말로 설명해보세요..." className="mt-4 min-h-36 w-full resize-y rounded-control border border-line p-4 text-body-lg disabled:opacity-60" onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void send(); } }} />
+          <label htmlFor="learner-answer" className="sr-only">나의 설명</label><textarea id="learner-answer" value={answer} onChange={(e) => { setAnswer(e.target.value); setAnswerError(""); }} disabled={pending} placeholder="내 말로 설명해보세요..." className={`mt-4 min-h-36 w-full resize-y rounded-control border p-4 text-body-lg disabled:opacity-60 ${
+  answerError ? "border-danger" : "border-line"
+}`} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void send(); } }} />
+          {answerError && (
+            <p
+              role="alert"
+              className="mt-3 rounded-control border border-warning bg-warning-soft p-3 text-body text-warning"
+            >
+              {answerError}
+            </p>
+          )}
           <fieldset disabled={pending} className="mt-3 disabled:opacity-60">
             <legend className="text-caption font-bold text-muted">
               답변 확신도 <span className="font-normal text-subtle">(선택)</span>
