@@ -42,7 +42,7 @@ export function ProjectsView() {
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-4" aria-busy={!list}>
+      <div className="grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[600px]:grid-cols-1" aria-busy={!list}>
         {list
           ? list.items.map((project) => <ProjectCard key={project.id} project={project} />)
           : Array.from({ length: 3 }, (_, i) => (

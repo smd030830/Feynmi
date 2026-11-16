@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { AuthSplit } from "@/components/auth-split";
 import { GuestOnly } from "@/components/auth-guard";
 import { EmailLoginForm } from "./email-login-form";
 import { GoogleLoginButton } from "./google-login-button";
+import { LogoutNotice } from "./logout-notice";
 
 export const metadata: Metadata = { title: "로그인 · Feynmi" };
 
@@ -17,6 +19,7 @@ export default function LoginPage() {
               환영합니다.
             </h2>
   
+            <Suspense><LogoutNotice /></Suspense>
             <div className="mt-10 flex flex-col gap-3">
               <GoogleLoginButton />
   

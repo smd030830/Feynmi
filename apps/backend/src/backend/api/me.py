@@ -1,12 +1,50 @@
-from datetime import datetime
+import asyncio
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, StringConstraints
 
-from backend.api.deps import CurrentUser, DbSession, get_current_user, require_verified_email
+from backend.api.deps import (
+    CurrentUser,
+    DbSession,
+    get_account_cloud,
+    get_current_user,
+    require_profile,
+    require_verified_email,
+)
+from backend.db.models import UserSettings
+from backend.domain.stats import LearningStats
+from backend.services.account import active_user
+from backend.services.cloud import AccountCloud
+from backend.services.stats import load_stats, load_weekly_days
 
 router = APIRouter(prefix="/me", tags=["me"])
+
+
+class WeeklySummary(BaseModel):
+    weekly_goal_days: int
+    study_days: list[bool]
+
+
+@router.get("/stats")
+async def get_stats(
+    current: Annotated[CurrentUser, Depends(require_profile)],
+    db: DbSession,
+) -> LearningStats:
+    return await load_stats(db, current.user.id)
+
+
+@router.get("/summary")
+async def get_summary(
+    current: Annotated[CurrentUser, Depends(require_profile)],
+    db: DbSession,
+) -> WeeklySummary:
+    settings = await db.get(UserSettings, current.user.id)
+    return WeeklySummary(
+        weekly_goal_days=settings.weekly_goal_days if settings else 3,
+        study_days=await load_weekly_days(db, current.user.id),
+    )
 
 
 class MeResponse(BaseModel):
@@ -23,7 +61,7 @@ class ProfileUpdate(BaseModel):
     nickname: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
 
 
-def _me_response(current: CurrentUser) -> MeResponse:
+async def _me_response(current: CurrentUser, cloud: AccountCloud) -> MeResponse:
     user = current.user
     return MeResponse(
         nickname=user.nickname,
@@ -31,14 +69,19 @@ def _me_response(current: CurrentUser) -> MeResponse:
         sign_in_provider=user.sign_in_provider,
         email_verified=current.token.email_verified,
         ai_consent_at=user.ai_consent_at,
-        avatar_url=None,  # 프로필 이미지(FM-070)에서 Signed URL로 채운다
+        avatar_url=await asyncio.to_thread(cloud.read_url, user.avatar_path)
+        if user.avatar_path
+        else None,
     )
 
 
 @router.get("")
-async def get_me(current: Annotated[CurrentUser, Depends(get_current_user)]) -> MeResponse:
+async def get_me(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    cloud: Annotated[AccountCloud, Depends(get_account_cloud)],
+) -> MeResponse:
     # 가입 단계를 이어가려고 인증·닉네임 조건 없이 열어 둔다 (8.1).
-    return _me_response(current)
+    return await _me_response(current, cloud)
 
 
 @router.patch("/profile")
@@ -46,8 +89,27 @@ async def update_profile(
     body: ProfileUpdate,
     current: Annotated[CurrentUser, Depends(require_verified_email)],
     db: DbSession,
+    cloud: Annotated[AccountCloud, Depends(get_account_cloud)],
 ) -> MeResponse:
     # 이메일 가입 ③ 단계, 구글 온보딩, 설정이 함께 쓴다. 닉네임이 아직 없어도 호출할 수 있다.
-    current.user.nickname = body.nickname
+    user = await active_user(db, current.user.id)
+    user.nickname = body.nickname
     await db.commit()
-    return _me_response(current)
+    return await _me_response(current, cloud)
+
+
+@router.post("/ai-consent")
+async def give_ai_consent(
+    current: Annotated[CurrentUser, Depends(require_verified_email)],
+    db: DbSession,
+    cloud: Annotated[AccountCloud, Depends(get_account_cloud)],
+) -> MeResponse:
+    """첫 업로드 전 "자료가 외부 AI API(OpenAI)로 전송됩니다" 동의 (PRD FR-1.8).
+
+    다시 불러도 처음 동의한 시각을 유지한다.
+    """
+    user = await active_user(db, current.user.id)
+    if user.ai_consent_at is None:
+        user.ai_consent_at = datetime.now(UTC)
+        await db.commit()
+    return await _me_response(current, cloud)

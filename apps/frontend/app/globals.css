@@ -87,3 +87,224 @@ body {
   outline: 2px solid #818cf8;
   outline-offset: 2px;
 }
+
+/* ------------------------------------------------------------------
+ * Safe Area · 모바일/태블릿 대응 (Figma Make 시안의 구현을 참고)
+ * - viewport-fit=cover는 app/layout.tsx의 viewport에서 설정한다.
+ * - PC(안전 영역 0, 폭 1180px 이상)에서는 위 기존 값과 같은 결과가 나오도록 쓴다.
+ * - 일반 CSS는 Tailwind 유틸리티(레이어 안)보다 우선하므로 해당 클래스만 덮어쓴다.
+ * ------------------------------------------------------------------ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  /* 모바일 주소창 때문에 100vh가 실제 보이는 높이보다 커지는 문제를 100dvh로 피한다 */
+  --viewport-height: 100vh;
+}
+@supports (height: 100dvh) {
+  :root {
+    --viewport-height: 100dvh;
+  }
+}
+
+/* 앱 셸: 사이드바(왼쪽), 상단 바, 본문 */
+.app-sidebar {
+  width: calc(236px + var(--safe-left));
+  height: var(--viewport-height);
+  padding-top: calc(30px + var(--safe-top));
+  padding-bottom: calc(24px + var(--safe-bottom));
+  padding-left: calc(20px + var(--safe-left));
+}
+.app-topbar {
+  height: auto;
+  min-height: calc(62px + var(--safe-top));
+  padding-top: var(--safe-top);
+  padding-right: calc(42px + var(--safe-right));
+}
+.app-main {
+  padding-right: calc(42px + var(--safe-right));
+  padding-bottom: calc(54px + var(--safe-bottom));
+}
+.app-menu-btn,
+.app-menu-close,
+.app-backdrop {
+  display: none;
+}
+
+/* 모달(<dialog>): 안전 영역 안에서 가운데에 두고, 화면보다 크면 안에서 스크롤 */
+.app-modal {
+  inset: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  width: min(460px, calc(100vw - 32px - var(--safe-left) - var(--safe-right)));
+  max-width: none;
+  max-height: calc(var(--viewport-height) - 32px - var(--safe-top) - var(--safe-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 로그인/회원가입 */
+.auth-brand {
+  padding-top: calc(56px + var(--safe-top));
+  padding-bottom: calc(56px + var(--safe-bottom));
+  padding-left: calc(64px + var(--safe-left));
+}
+.auth-form-side {
+  padding-top: calc(64px + var(--safe-top));
+  padding-bottom: calc(64px + var(--safe-bottom));
+  padding-right: calc(40px + var(--safe-right));
+}
+.auth-mini-logo {
+  display: none;
+}
+/* 비밀번호 재설정, 닉네임 설정, 계정 오류 */
+.auth-card-page {
+  padding: calc(32px + var(--safe-top)) calc(40px + var(--safe-right)) calc(32px + var(--safe-bottom))
+    calc(40px + var(--safe-left));
+}
+
+/* 터치 기기에서 16px 미만 입력창은 iOS가 포커스 때 화면을 확대한다 */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* 태블릿 이하 (Figma Make: max-width 1024px). 터치 기기는 1180px 미만(iPad mini 가로 등)도 포함 */
+@media (max-width: 1024px), (max-width: 1179px) and (any-pointer: coarse) {
+  body {
+    min-width: 0;
+    overflow-x: clip;
+  }
+}
+@media (max-width: 1024px) {
+  .app-sidebar {
+    width: calc(190px + var(--safe-left));
+    padding-left: calc(16px + var(--safe-left));
+    padding-right: 16px;
+  }
+  .app-topbar {
+    padding-left: 24px;
+    padding-right: calc(24px + var(--safe-right));
+  }
+  .app-main {
+    padding-top: 30px;
+    padding-left: 24px;
+    padding-right: calc(24px + var(--safe-right));
+    padding-bottom: calc(48px + var(--safe-bottom));
+  }
+  .auth-split {
+    grid-template-columns: 45fr 55fr;
+  }
+  .auth-brand {
+    padding: calc(34px + var(--safe-top)) 28px calc(34px + var(--safe-bottom)) calc(28px + var(--safe-left));
+  }
+  .auth-brand h1 {
+    font-size: clamp(21px, 2.5vw + 2px, 30px);
+  }
+  /* 좁아진 브랜드 패널 안에 학습 흐름(4단계)이 잘리지 않도록 타일과 간격을 줄인다 */
+  .auth-brand ol,
+  .auth-brand ol > li {
+    gap: 6px;
+  }
+  .auth-brand ol > li > div > span:first-child {
+    width: 44px;
+    height: 44px;
+  }
+  .auth-form-side {
+    padding: calc(42px + var(--safe-top)) calc(30px + var(--safe-right)) calc(42px + var(--safe-bottom)) 30px;
+  }
+}
+
+/* 모바일: 폭 600px 이하, 그리고 가로로 눕힌 휴대폰(높이 600px 이하의 터치 기기) */
+@media (max-width: 600px), (max-height: 600px) and (max-width: 1024px) and (orientation: landscape) and (any-pointer: coarse) {
+  body:has(.app-sidebar[data-open="true"]) {
+    overflow: hidden;
+  }
+  /* 사이드바는 왼쪽에서 밀려 나오는 드로어 */
+  .app-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(calc(280px + var(--safe-left)), 82vw);
+    overflow-y: auto;
+    box-shadow: 16px 0 40px rgba(15, 23, 42, 0.16);
+    transform: translateX(-105%);
+    visibility: hidden; /* 닫혀 있을 때 키보드 포커스와 스크린리더에서 제외 */
+    transition:
+      transform 0.24s ease,
+      visibility 0s linear 0.24s;
+  }
+  .app-sidebar[data-open="true"] {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.24s ease;
+  }
+  .app-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(15, 23, 42, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s ease;
+  }
+  .app-backdrop[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .app-menu-btn,
+  .app-menu-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+  }
+  .app-menu-btn {
+    margin-left: -10px;
+  }
+  .app-menu-close {
+    position: absolute;
+    right: 8px;
+    top: calc(12px + var(--safe-top));
+  }
+  .app-topbar {
+    min-height: calc(54px + var(--safe-top));
+    padding-left: calc(16px + var(--safe-left));
+    padding-right: calc(16px + var(--safe-right));
+  }
+  .app-main {
+    padding-top: 24px;
+    padding-left: calc(16px + var(--safe-left));
+    padding-right: calc(16px + var(--safe-right));
+    padding-bottom: calc(38px + var(--safe-bottom));
+  }
+
+  /* 로그인/회원가입: 브랜드 패널을 숨기고 폼만 */
+  .auth-split {
+    display: block;
+  }
+  .auth-brand {
+    display: none;
+  }
+  .auth-form-side {
+    min-height: var(--viewport-height);
+    align-items: flex-start;
+    padding: calc(28px + var(--safe-top)) calc(20px + var(--safe-right)) calc(28px + var(--safe-bottom))
+      calc(20px + var(--safe-left));
+  }
+  .auth-mini-logo {
+    display: block;
+    margin-bottom: 40px;
+  }
+  .auth-card-page {
+    padding: calc(20px + var(--safe-top)) calc(16px + var(--safe-right)) calc(20px + var(--safe-bottom))
+      calc(16px + var(--safe-left));
+  }
+  .auth-card-box {
+    padding: 28px 22px;
+  }
+}

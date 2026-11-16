@@ -1,6 +1,7 @@
 # 로컬 개발: docker compose up
 # Docker 데몬이 다른 파일시스템(Colima VM 등)에 있어 ./apps 경로가 보이지 않을 때만 .env에서 VM 기준 절대경로로 덮어쓴다.
-# GCS와 Firebase는 개발용 버킷/프로젝트를 쓴다 (architecture.md 11.2). 해당 설정은 기능이 생길 때 추가한다.
+# Firebase는 개발용 프로젝트를 쓴다. 학습자료 원본은 .env의 GCS_BUCKET(개발용 버킷)이 있으면 그 버킷,
+# 비어 있으면 아래 gcs 서비스(로컬 GCS 에뮬레이터)에 보관한다 (architecture.md 11.2).
 services:
   db:
     image: pgvector/pgvector:pg18-trixie
@@ -25,11 +26,22 @@ services:
       target: dev
     # 기동할 때 마이그레이션을 적용한다.
     command: sh -c "alembic upgrade head && uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000"
+    env_file:
+      - path: .env.llm
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://feynmi:feynmi@db:5432/feynmi
       CORS_ORIGINS: http://localhost:3000
       # 저장소 루트의 .env 또는 셸 환경변수에서 읽는다. 프론트엔드의 NEXT_PUBLIC_FIREBASE_PROJECT_ID와 같은 값
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_WEB_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+      GCS_BUCKET: ${GCS_BUCKET:-}
+      GCS_SIGNER_SERVICE_ACCOUNT: ${GCS_SIGNER_SERVICE_ACCOUNT:-}
+      # GCS_BUCKET이 비었을 때 쓰는 에뮬레이터. 백엔드는 컨테이너 주소, 브라우저는 localhost로 올린다
+      GCS_EMULATOR_URL: http://gcs:4443
+      GCS_EMULATOR_PUBLIC_URL: http://localhost:4443
+      # 로컬은 큐 없이 백엔드 안에서 분석한다 (운영은 cloud_tasks)
+      QUEUE_MODE: inline
     ports:
       - "8000:8000"
     healthcheck:
@@ -43,6 +55,24 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      gcs:
+        condition: service_started
+
+  # 로컬 GCS 에뮬레이터 (fake-gcs-server). 개발용 버킷 없이 업로드·분석을 그대로 시험한다.
+  # 서명·크기 범위는 검사하지 않으므로, 그 부분은 백엔드가 업로드 완료 때 실제 크기로 다시 확인한다.
+  gcs:
+    image: fsouza/fake-gcs-server:1.52.2
+    command:
+      - -scheme=http
+      - -port=4443
+      - -public-host=localhost:4443
+      - -external-url=http://localhost:4443
+      # 브라우저가 업로드할 때 붙이는 서명 헤더를 CORS에서 허용한다
+      - -cors-headers=Content-Type,x-goog-content-length-range
+    ports:
+      - "127.0.0.1:4443:4443"
+    volumes:
+      - gcs_data:/storage
 
   frontend:
     image: node:24-trixie-slim
@@ -65,5 +95,6 @@ services:
 
 volumes:
   db_data:
+  gcs_data:
   frontend_node_modules:
   frontend_next:

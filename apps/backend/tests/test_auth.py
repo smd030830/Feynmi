@@ -6,6 +6,7 @@ from typing import Annotated
 
 import httpx
 import pytest
+from account_fakes import FakeCloud
 from fastapi import Depends, FastAPI
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -56,6 +57,7 @@ async def app(engine: AsyncEngine, tokens: dict[str, VerifiedToken]) -> FastAPI:
         firebase_project_id="test",
     )
     app = create_app(settings, token_verifier=fake_verifier(tokens))
+    app.state.account_cloud = FakeCloud()
 
     # 사용자 API 조건을 확인하려고 두 의존성을 붙인 경로를 둔다.
     @app.get(f"{API_PREFIX}/_test/verified")

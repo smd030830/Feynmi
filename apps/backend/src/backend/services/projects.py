@@ -6,14 +6,17 @@
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.models import Concept, Material, Project
-from backend.domain.enums import ConceptState, ProjectColor
+from backend.db.models import Concept, Material, Message, Project, Session
+from backend.domain.enums import ConceptState, MessageRole, ProjectColor
 from backend.domain.projects import next_project_color
+from backend.domain.score_rules import average_score
 from backend.errors import AppError
+from backend.services.account import active_user
 
 StateCounts = dict[ConceptState, int]
 
@@ -23,6 +26,9 @@ class ProjectSummary:
     project: Project
     state_counts: StateCounts
     material_count: int
+    score: int | None = None
+    last_concept_title: str | None = None
+    last_studied_at: datetime | None = None
 
 
 def _empty_counts() -> StateCounts:
@@ -41,7 +47,8 @@ async def next_color(db: AsyncSession, user_id: uuid.UUID) -> ProjectColor:
 async def create_project(
     db: AsyncSession, user_id: uuid.UUID, name: str, description: str | None
 ) -> ProjectSummary:
-    # 동시에 만들면 같은 색이 나올 수 있다. 색은 표시용이라 잠그지 않는다.
+    # 탈퇴 표시와 직렬화하여 삭제가 시작된 계정의 새 데이터 생성을 차단한다.
+    await active_user(db, user_id)
     color = await next_color(db, user_id)
     project = Project(user_id=user_id, name=name, description=description, color=color.value)
     db.add(project)
@@ -53,6 +60,8 @@ async def create_project(
 async def _summaries(db: AsyncSession, projects: Sequence[Project]) -> list[ProjectSummary]:
     """프로젝트별 개념 상태 분포와 자료 수를 한 번에 센다 (7.5)."""
     ids = [p.id for p in projects]
+    if not ids:
+        return []
     counts = {pid: _empty_counts() for pid in ids}
     state_rows = await db.execute(
         select(Material.project_id, Concept.state, func.count())
@@ -69,15 +78,67 @@ async def _summaries(db: AsyncSession, projects: Sequence[Project]) -> list[Proj
         .group_by(Material.project_id)
     )
     materials: dict[uuid.UUID, int] = {pid: n for pid, n in material_rows}
-    return [ProjectSummary(p, counts[p.id], materials.get(p.id, 0)) for p in projects]
+    score_rows = await db.execute(
+        select(Material.project_id, Concept.score)
+        .join(Concept, Concept.material_id == Material.id)
+        .where(Material.project_id.in_(ids))
+    )
+    scores: dict[uuid.UUID, list[int | None]] = {pid: [] for pid in ids}
+    for pid, score in score_rows:
+        scores[pid].append(score)
+    answered = (
+        select(Message.id)
+        .where(Message.session_id == Session.id, Message.role == MessageRole.ANSWER)
+        .exists()
+    )
+    recent = (
+        select(
+            Material.project_id,
+            Concept.title,
+            Session.started_at,
+            func.row_number()
+            .over(
+                partition_by=Material.project_id,
+                order_by=(Session.started_at.desc(), Session.id.desc()),
+            )
+            .label("position"),
+        )
+        .select_from(Session)
+        .join(Concept, Concept.id == Session.concept_id)
+        .join(Material, Material.id == Concept.material_id)
+        .join(Project, Project.id == Material.project_id)
+        .where(Material.project_id.in_(ids), Session.user_id == Project.user_id, answered)
+        .subquery()
+    )
+    recent_rows = await db.execute(select(recent).where(recent.c.position == 1))
+    latest = {row.project_id: (row.title, row.started_at) for row in recent_rows}
+    return [
+        ProjectSummary(
+            p,
+            counts[p.id],
+            materials.get(p.id, 0),
+            average_score(scores[p.id]),
+            *latest.get(p.id, (None, None)),
+        )
+        for p in projects
+    ]
 
 
 async def list_projects(db: AsyncSession, user_id: uuid.UUID) -> list[ProjectSummary]:
-    # 최근 학습순 정렬(design-system 9.9)은 세션이 생기면(FM-030) 바꾼다. 지금은 최신 생성순이다.
     projects = await db.scalars(
         select(Project).where(Project.user_id == user_id).order_by(Project.created_at.desc())
     )
-    return await _summaries(db, projects.all())
+    summaries = await _summaries(db, projects.all())
+    return sorted(
+        summaries,
+        key=lambda item: (
+            item.last_studied_at is not None,
+            item.last_studied_at or item.project.created_at,
+            item.project.created_at,
+            item.project.id,
+        ),
+        reverse=True,
+    )
 
 
 async def get_project(

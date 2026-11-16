@@ -34,7 +34,7 @@ export function Modal({
       }}
       // 카드 바깥(배경 막)을 누르면 이벤트 대상이 dialog 자신이다
       onClick={(event) => dismissible && event.target === event.currentTarget && onClose()}
-      className="m-auto w-[460px] max-w-[calc(100vw-32px)] rounded-[22px] bg-transparent p-0 shadow-modal backdrop:bg-[rgba(15,23,42,0.4)]"
+      className="app-modal m-auto w-[460px] max-w-[calc(100vw-32px)] rounded-[22px] bg-transparent p-0 shadow-modal backdrop:bg-[rgba(15,23,42,0.4)]"
     >
       <div className="rounded-[22px] bg-surface p-8">
         <h2 id={titleId} className="text-title-2 font-bold text-text">

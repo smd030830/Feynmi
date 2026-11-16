@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
+import { MaterialsPanel } from "@/components/materials-panel";
+import { RecordsPanel } from "@/components/records-panel";
 import { ProgressRing } from "@/components/progress-ring";
 import { ProjectTile } from "@/components/project-tile";
 import { StateDistributionBar } from "@/components/state-distribution-bar";
-import { ApiError, apiErrorMessage, getProject, type Project } from "@/lib/api";
+import { StateBadge } from "@/components/learning-feedback";
+import { ApiError, apiErrorMessage, getProject, listConcepts, listRecords, listMaterials, startSession, type Concept, type Project, type RecordPage, type Material } from "@/lib/api";
 
 const tabs = [
   { key: "concepts", label: "개념" },
@@ -18,26 +21,32 @@ const tabs = [
 
 type TabKey = (typeof tabs)[number]["key"];
 
-function tabCount(project: Project, tab: TabKey) {
+function tabCount(project: Project, tab: TabKey, recordTotal?: number) {
   if (tab === "concepts") return Object.values(project.state_counts).reduce((a, b) => a + b, 0);
   if (tab === "materials") return project.material_count;
-  return 0; // 학습기록 수는 FM-044에서 채운다
+  return recordTotal ?? "-";
 }
 
 export function ProjectDetailView() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const tab: TabKey = tabs.some((t) => t.key === tabParam) ? (tabParam as TabKey) : "concepts";
 
   // undefined: 불러오는 중
-  const [loaded, setLoaded] = useState<{ id: string; project?: Project; error?: unknown }>();
+  const [loaded, setLoaded] = useState<{ id: string; project?: Project; concepts?: Concept[]; records?: RecordPage; materials?: Material[]; recordTotal?: number; recommendedId?: string; error?: unknown }>();
   const [attempt, setAttempt] = useState(0);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState("");
+  const [refreshError, setRefreshError] = useState("");
+  const pending = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    getProject(id).then(
-      (project) => !cancelled && setLoaded({ id, project }),
+    // 기록 조회 실패는 기록 탭에서 재시도하고 프로젝트·자료 접근은 유지한다.
+    Promise.all([getProject(id), listConcepts(id), listRecords(id).catch(() => undefined), listMaterials(id).catch(() => undefined)]).then(
+      ([project, concepts, records, materials]) => !cancelled && setLoaded({ id, project, concepts: concepts.items, records, materials: materials?.items, recordTotal: records?.total, recommendedId: concepts.recommendation?.concept_id }),
       (error) => !cancelled && setLoaded({ id, error }),
     );
     return () => {
@@ -46,6 +55,65 @@ export function ProjectDetailView() {
   }, [id, attempt]);
 
   const current = loaded?.id === id ? loaded : undefined;
+  const concepts = current?.concepts ?? [];
+  const nextConcept = concepts.find((concept) => concept.id === current?.recommendedId);
+  async function begin(conceptId: string) {
+    if (pending.current) return;
+    pending.current = true;
+    setStarting(true); setStartError("");
+    try { const session = await startSession(conceptId); router.push(`/sessions/${session.id}`); }
+    catch (err) { pending.current = false; setStartError(apiErrorMessage(err)); setStarting(false); }
+  }
+
+  // 자료를 올리면 탭과 머리글의 자료 수를 맞춘다
+  const setMaterialCount = useCallback(
+    (count: number) =>
+      setLoaded((prev) =>
+        prev?.id === id && prev.project && prev.project.material_count !== count
+          ? { ...prev, project: { ...prev.project, material_count: count } }
+          : prev,
+      ),
+    [id],
+  );
+
+  const setRecordTotal = useCallback((total: number) => {
+    setLoaded((previous) => previous?.id === id && previous.recordTotal !== total
+      ? { ...previous, recordTotal: total }
+      : previous);
+  }, [id]);
+
+  const setMaterials = useCallback((items: Material[]) => {
+    setLoaded((previous) => previous?.id === id ? { ...previous, materials: items } : previous);
+  }, [id]);
+  const materials = current?.materials;
+  const busyCount = materials?.filter((material) => ["pending_upload", "queued", "extracting", "generating_concepts"].includes(material.status)).length ?? 0;
+  const revision = materials?.map((material) => `${material.id}:${material.status}:${material.concept_count}`).join("|");
+
+  // 자료 탭은 MaterialsPanel이 폴링하고, 다른 탭은 여기서 분석 완료를 감지한다.
+  useEffect(() => {
+    if (!busyCount || tab === "materials") return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try { const value = await listMaterials(id); if (active) setMaterials(value.items); }
+      catch (error) { if (active) setRefreshError(apiErrorMessage(error)); }
+      if (active) timer = setTimeout(() => void poll(), 2000);
+    }
+    timer = setTimeout(() => void poll(), 2000);
+    return () => { active = false; clearTimeout(timer); };
+  }, [id, busyCount, tab, setMaterials]);
+
+  useEffect(() => {
+    if (revision === undefined) return;
+    let active = true;
+    Promise.all([getProject(id), listConcepts(id)]).then(([project, value]) => {
+      if (active) {
+        setLoaded((previous) => previous?.id === id ? { ...previous, project, concepts: value.items, recommendedId: value.recommendation?.concept_id } : previous);
+        setRefreshError("");
+      }
+    }).catch((error) => { if (active) setRefreshError(apiErrorMessage(error)); });
+    return () => { active = false; };
+  }, [id, revision]);
 
   if (current?.error) {
     const notFound = current.error instanceof ApiError && current.error.code === "not_found";
@@ -91,7 +159,7 @@ export function ProjectDetailView() {
         </span>
       </nav>
 
-      <header className="flex items-center gap-6 rounded-card border border-line bg-surface p-7">
+      <header className="flex items-center gap-6 rounded-card border border-line bg-surface p-7 max-[600px]:flex-wrap max-[600px]:gap-4 max-[600px]:p-5">
         <ProjectTile name={project.name} color={project.color} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="text-eyebrow font-extrabold uppercase text-primary-strong">
@@ -105,15 +173,15 @@ export function ProjectDetailView() {
             <StateDistributionBar counts={project.state_counts} />
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-center gap-4">
+        <div className="flex shrink-0 flex-col items-center gap-4 max-[600px]:w-full max-[600px]:flex-row max-[600px]:justify-between">
           <ProgressRing score={project.score} />
-          {/* 취약 개념 1순위로 새 세션 (FM-030). 개념이 없으면 비활성 */}
-          <Button disabled>학습 시작하기</Button>
+          <Button disabled={!nextConcept || starting} onClick={() => nextConcept && void begin(nextConcept.id)}>{starting ? "학습 준비 중…" : "학습 시작하기"}</Button>
         </div>
       </header>
+      {startError && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{startError}</p>}
 
       <div>
-        <div role="tablist" aria-label="프로젝트 탭" className="flex gap-[25px] border-b border-line">
+        <div role="tablist" aria-label="프로젝트 탭" className="flex gap-[25px] border-b border-line max-[600px]:gap-4 max-[600px]:overflow-x-auto">
           {tabs.map((t) => {
             const active = t.key === tab;
             return (
@@ -136,7 +204,7 @@ export function ProjectDetailView() {
                     active ? "bg-primary-soft text-primary-strong" : "bg-[#f1f5f9] text-subtle"
                   }`}
                 >
-                  {tabCount(project, t.key)}
+                  {tabCount(project, t.key, current.recordTotal)}
                 </span>
               </Link>
             );
@@ -145,52 +213,70 @@ export function ProjectDetailView() {
 
         <div role="tabpanel" className="pt-6">
           {tab === "concepts" && (
-            <EmptyState
-              icon="book"
-              title="아직 개념이 없어요"
-              description="학습자료를 올리면 핵심 개념을 뽑아 드려요."
-            >
-              <Link
-                href={`/projects/${project.id}?tab=materials`}
-                replace
-                scroll={false}
-                className={buttonStyles("primary", "mt-5")}
-              >
-                학습자료 올리러 가기
-              </Link>
-            </EmptyState>
+            <div className="grid grid-cols-[minmax(0,1fr)_280px] items-start gap-6">
+              <section aria-labelledby="concepts-title" className="min-w-0 space-y-4">
+                <h2 id="concepts-title" className="text-heading font-bold text-text">개념 이해도</h2>
+                {busyCount > 0 && <p role="status" className="rounded-control bg-primary-soft p-4 text-body font-semibold text-primary-strong">자료 {busyCount}개 분석 중 · 완료되면 개념 목록이 갱신돼요.</p>}
+                {refreshError && <p role="alert" className="text-caption text-danger">{refreshError}</p>}
+                {concepts.length > 0 ? concepts.map((concept) => (
+                  <button key={concept.id} type="button" disabled={starting} onClick={() => void begin(concept.id)} className="flex w-full items-center gap-4 rounded-card border border-line bg-surface p-5 text-left hover:border-primary-line disabled:opacity-60">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-caption text-subtle">{concept.material_title}</span>
+                      <span role="heading" aria-level={3} className="mt-1 block text-subheading font-bold">{concept.title}</span>
+                      <span className="mt-1 block text-caption text-muted">{concept.description}</span>
+                    </span>
+                    <StateBadge state={concept.state} />
+                    <span className="min-w-12 text-right text-body font-bold text-muted">{concept.score === null ? "-" : `${concept.score}%`}</span>
+                    <span className={buttonStyles("soft")}>{concept.state === "not_studied" ? "학습하기" : "다시 학습"}</span>
+                  </button>
+                )) : (
+                  <EmptyState icon="book" title="아직 개념이 없어요" description="학습자료를 올리면 핵심 개념을 뽑아 드려요.">
+                    <Link href={`/projects/${project.id}?tab=materials`} replace scroll={false} className={buttonStyles("primary", "mt-5")}>학습자료 올리러 가기</Link>
+                  </EmptyState>
+                )}
+              </section>
+              <aside className="space-y-5">
+                <section aria-labelledby="latest-material-title" className="rounded-card border border-line bg-surface p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 id="latest-material-title" className="text-subheading font-bold text-text">학습자료</h2>
+                    <Link href={`/projects/${project.id}?tab=materials`} replace className="text-caption font-semibold text-primary-strong">학습자료 추가</Link>
+                  </div>
+                  {materials?.[0] ? <>
+                    <p className="mt-4 break-words text-body font-semibold text-muted">{materials[0].title}</p>
+                    <p className="mt-1 text-caption text-subtle">{new Date(materials[0].created_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p>
+                    <dl className="mt-4 space-y-2 rounded-control bg-canvas p-3 text-caption">
+                      <div className="flex justify-between gap-2"><dt>추출 개념</dt><dd className="font-bold">{materials[0].concept_count ?? 0}개</dd></div>
+                      <div className="flex justify-between gap-2"><dt>채점 요소</dt><dd className="font-bold">{materials[0].element_count ?? 0}개</dd></div>
+                    </dl>
+                  </> : <p className="mt-4 text-caption text-subtle">아직 확인할 학습자료가 없어요.</p>}
+                  <Link href={`/projects/${project.id}?tab=materials`} replace className={buttonStyles("soft", "mt-4 w-full")}>학습자료 살펴보기</Link>
+                </section>
+                <section aria-labelledby="recent-learning-title" className="rounded-card border border-line bg-surface p-5">
+                  <div className="flex items-center justify-between">
+                    <h2 id="recent-learning-title" className="text-subheading font-bold text-text">최근 학습</h2>
+                    <Link href={`/projects/${project.id}?tab=records`} replace className="text-caption font-semibold text-primary-strong">전체 보기</Link>
+                  </div>
+                  {current.records?.items.length ? <ul className="mt-4 space-y-3">{current.records.items.slice(0, 3).map((record) => (
+                    <li key={record.id}><Link href={`/sessions/${record.id}${record.status === "completed" ? "/result" : ""}`} className="block rounded-control p-2 hover:bg-primary-soft">
+                      <p className="truncate text-body font-semibold text-text">{record.concept_title}</p>
+                      <p className="mt-1 text-caption text-subtle">{new Date(record.started_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · {record.score === null ? "-" : `${record.score}%`}</p>
+                    </Link></li>
+                  ))}</ul> : <p className="mt-4 text-caption text-subtle">아직 학습기록이 없어요.</p>}
+                </section>
+              </aside>
+            </div>
           )}
           {tab === "materials" && (
-            <section aria-labelledby="materials-title" className="flex flex-col gap-4">
-              <div className="flex items-end justify-between">
-                <div>
-                  <h2 id="materials-title" className="text-heading font-bold text-text">
-                    학습자료
-                  </h2>
-                  <p className="text-caption text-subtle">
-                    PDF · PPTX 자료를 올리면 개념을 분석해 학습을 시작할 수 있어요.
-                  </p>
-                </div>
-                {/* 업로드는 FM-020에서 연결한다 */}
-                <Button disabled>학습자료 업로드</Button>
-              </div>
-              <EmptyState
-                icon="file"
-                title="아직 올린 자료가 없어요"
-                description="PDF · PPTX, 파일당 50MB, 300쪽/슬라이드까지 올릴 수 있어요."
-              />
-              <p className="flex items-center gap-2 text-caption text-subtle">
-                <Icon name="shield" size={16} className="text-placeholder" />
-                업로드한 자료는 {project.name} 프로젝트의 개념 분석과 질문 생성에만 사용됩니다.
-              </p>
-            </section>
+            <MaterialsPanel
+              key={project.id}
+              projectId={project.id}
+              projectName={project.name}
+              onCountChange={setMaterialCount}
+              onItemsChange={setMaterials}
+            />
           )}
           {tab === "records" && (
-            <EmptyState
-              icon="chart"
-              title="아직 학습기록이 없어요"
-              description="개념을 설명하고 나면 여기에서 다시 볼 수 있어요."
-            />
+            <RecordsPanel key={project.id} projectId={project.id} initialPage={current.records} onTotalChange={setRecordTotal} />
           )}
         </div>
       </div>

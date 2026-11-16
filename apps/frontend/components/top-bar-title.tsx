@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 
 // design-system 9.1 상단 바 왼쪽의 화면 이름
 const titles: [prefix: string, title: string][] = [
+  ["/sessions", "설명 학습"],
   ["/projects", "프로젝트"],
   ["/records", "학습기록"],
   ["/settings", "설정"],

@@ -1,6 +1,38 @@
 # Feynmi
 팀플 github
 
+## 다른 PC에서 처음 실행하기
+
+Git에는 소스·잠금 파일·Docker 설정과 환경변수 예시만 포함됩니다. `.env`, `.env.llm`, Firebase 관리자 인증, 이 PC의 업로드 원본과 DB 데이터, IntelliJ 실행 설정은 포함되지 않습니다. 저장소를 받는 것만으로 모든 기능이 즉시 실행되지는 않습니다.
+
+1. Git과 Docker Desktop을 설치하고 Docker Desktop을 실행합니다. 개발 도구 버전은 `mise.toml`을 따릅니다. 프론트엔드를 호스트에서 실행한다면 Node.js 24와 pnpm이 필요합니다. 아래 전체 Docker 실행 방식은 호스트 Node.js·Python 설치 없이 사용할 수 있습니다.
+2. 저장소 루트에서 `.env.example`을 `.env`로, `.env.llm.example`을 `.env.llm`으로 복사합니다. 파일 복사는 처음 한 번만 하며 기존 개인 설정을 덮어쓰지 않습니다.
+3. `.env`에 사용할 Firebase 프로젝트의 Web 설정을 넣고, Firebase 콘솔에서 이메일·Google 로그인과 `localhost` 승인 도메인을 설정합니다. `FIREBASE_PROJECT_ID`와 `NEXT_PUBLIC_FIREBASE_PROJECT_ID`는 같아야 합니다. 기존 Firebase 프로젝트를 함께 사용하거나 각자 개발용 프로젝트를 만들 수 있습니다.
+4. `.env.llm`에 본인의 OpenRouter 키와 다음 모델 설정을 넣습니다. 키는 별도 안전한 경로로 관리하고 Git에 넣지 않습니다.
+
+```dotenv
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_CONCEPT_EXTRACTION_MODEL=openai/gpt-6-luna
+LLM_CONCEPT_EXTRACTION_EFFORT=medium
+LLM_ASSESSMENT_MODEL=openai/gpt-6-luna
+LLM_ASSESSMENT_EFFORT=medium
+LLM_EMBEDDING_MODEL=openai/text-embedding-3-small
+```
+
+모델 선택 기준은 [PRD 9.2](docs/prd.md#92-ai-모델과-파라미터)를 따릅니다. 키를 비우면 AI 분석은 재시도 가능한 실패로 표시되며 개념은 만들어지지 않습니다. 실제 분석·평가는 API 비용이 발생합니다.
+
+5. `GCS_BUCKET`을 비우면 로컬 파일 저장소를 사용합니다. 저장소 루트에서 전체 서비스를 실행합니다.
+
+```sh
+docker compose up -d --build --wait
+```
+
+[화면](http://localhost:3000)과 [API 상태](http://localhost:8000/health)를 확인합니다. 첫 실행은 이미지·패키지를 내려받아 시간이 걸립니다. DB는 자동 마이그레이션되고 각 PC의 Docker 볼륨에 저장됩니다. 기존 학습자료와 기록은 새 PC에 자동 복사되지 않습니다.
+
+일반 로그인·학습과 달리 모든 기기 로그아웃·Firebase 회원 삭제·운영 GCS·프로필 이미지 기능은 관리자 인증이나 실제 버킷 설정이 추가로 필요합니다. 관리자 인증 파일은 컨테이너에서도 읽을 수 있도록 별도로 연결해야 합니다. 이 설정 없이 모든 계정 관리 기능까지 동작한다고 볼 수 없습니다.
+
+종료는 `docker compose stop`으로 합니다. 데이터 볼륨을 지우는 종료 옵션은 사용하지 않습니다. IntelliJ 실행 설정은 Git에서 제외하므로 다른 PC에서는 아래 명령을 사용하거나 실행 설정을 직접 만듭니다.
+
 ## 개인 설정
 
 저장소 루트의 `.env.example`을 `.env`로 복사하고 Firebase 값을 채웁니다.
@@ -37,4 +69,51 @@ IntelliJ 상단 실행 설정에서 다음 항목을 선택한 뒤 Run(▶)을 �
 백엔드를 끌 때는 IntelliJ의 ■ 버튼 대신 `Backend stop`을 실행합니다.
 
 API 문서는 http://localhost:8000/docs 에서 확인할 수 있습니다.
+
+## 학습자료 업로드와 분석 시험
+
+자료를 올리면 글자 추출(그림은 OCR) → 조각·임베딩 저장 → 개념 추출까지 백엔드가 처리합니다.
+
+**준비**
+
+- 저장소 루트 `.env.llm`에 AI 키와 모델을 넣습니다(`.env.llm.example` 참고).
+  없으면 업로드와 글자 추출까지만 되고 개념은 만들어지지 않습니다.
+- `.env`의 `GCS_BUCKET`을 비워 두면 원본을 로컬 GCS 에뮬레이터(compose의 `gcs` 서비스)에 보관합니다.
+  개발용 버킷이나 클라우드 설정 없이 시험할 수 있습니다. 버킷을 넣으면 그 버킷을 씁니다.
+
+**실행**
+
+`Backend start` → `Frontend dev` 순서로 실행합니다. `Backend start`는 DB, GCS 에뮬레이터, 백엔드를 함께 켜고
+백엔드 의존성(파서·OCR 라이브러리, Tesseract)이 바뀌었으면 이미지를 다시 만듭니다.
+pull 뒤 첫 실행은 이미지 빌드로 몇 분 걸릴 수 있습니다. 이미 켜 둔 `Frontend dev`가 있으면 pull 뒤에 다시 시작합니다(이전 화면 코드가 남아 업로드가 404로 실패할 수 있음).
+터미널에서는 저장소 루트에서 `docker compose up -d --build --wait db gcs backend`로 같은 동작을 합니다.
+
+**화면에서 확인**
+
+1. 로그인 → 프로젝트 만들기 → 학습자료 탭에서 파일을 끌어다 놓거나 `학습자료 업로드`를 누릅니다.
+   PDF, PPTX, HWP, HWPX, DOCX, TXT, PNG, JPG, HEIC를 여러 개 한 번에 올릴 수 있습니다(파일당 50MB).
+2. 처음 올릴 때 외부 AI 전송 안내에 동의합니다.
+3. 상태가 `업로드 중 → 분석 대기 → 글자 추출 중 → 개념 생성 중 → 분석 완료`로 바뀝니다.
+   그림이 많은 자료는 1~2분 걸립니다. 실패하면 사유와 `재시도` 버튼이 나옵니다.
+4. 개념 탭에서 개념을 확인하고 `학습하기`로 설명 학습을 시작합니다.
+
+**DB에서 확인 (선택)**
+
+IntelliJ Database 창에서 PostgreSQL `localhost:5432`, 사용자·비밀번호 `feynmi`, DB `feynmi`로 연결합니다.
+
+```sql
+-- 자료별 쪽·조각 수와 임베딩 차원(1536)
+select m.title, m.page_count as 쪽, count(c.id) as 조각, min(vector_dims(c.embedding)) as 차원
+from materials m left join chunks c on c.material_id = m.id
+group by m.id order by m.created_at desc;
+
+-- 개념과 요소 수
+select k.title as 개념, count(e.id) as 요소
+from concepts k left join concept_elements e on e.concept_id = k.id
+group by k.id order by k.material_id, k.ordinal;
+```
 터미널에서는 `apps/frontend`에서 `pnpm backend:start`, `pnpm backend:stop`으로도 실행할 수 있습니다.
+
+운영 배포 절차와 공개 환경 검증 항목은 [배포 문서](docs/deployment.md)를 참고합니다.
+
+일반 로그인·첫 계정 연결은 Firebase Web API 키와 로그인 사용자의 ID 토큰으로 확인합니다. 로컬 compose는 `NEXT_PUBLIC_FIREBASE_API_KEY`를 백엔드에도 전달합니다. 모든 기기 로그아웃·Firebase 계정 삭제·운영 GCS 작업은 별도로 관리자 인증이 필요합니다.

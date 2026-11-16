@@ -10,6 +10,10 @@ WORKDIR /app
 FROM base AS dev
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
+# 이미지 글자 인식(OCR) 엔진. 한국어+영어 데이터 포함
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project
@@ -32,6 +36,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.14-slim-trixie AS prod
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
+# 이미지 글자 인식(OCR) 엔진. 한국어+영어 데이터 포함
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 1000 --no-create-home app
 WORKDIR /app
 COPY --from=build /app/.venv ./.venv

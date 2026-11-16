@@ -27,6 +27,13 @@ class ProjectColor(StrEnum):
 class FileType(StrEnum):
     PDF = "pdf"
     PPTX = "pptx"
+    PNG = "png"
+    JPG = "jpg"  # .jpeg 포함
+    TXT = "txt"
+    DOCX = "docx"
+    HWP = "hwp"
+    HWPX = "hwpx"
+    HEIC = "heic"  # .heif 포함 (아이폰 기본 사진 형식)
 
 
 class MaterialStatus(StrEnum):
@@ -45,6 +52,7 @@ class FailureCode(StrEnum):
     NO_EXTRACTABLE_TEXT = "no_extractable_text"
     CORRUPTED_FILE = "corrupted_file"
     LLM_FAILED = "llm_failed"
+    AI_UNAVAILABLE = "ai_unavailable"
     INTERNAL_ERROR = "internal_error"
 
 

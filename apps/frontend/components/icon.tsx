@@ -95,6 +95,20 @@ const paths = {
       <circle cx="12" cy="12" r="1" />
     </>
   ),
+  // 모바일 메뉴 (Figma Make 시안과 동일한 경로)
+  menu: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
+    </>
+  ),
+  close: (
+    <>
+      <path d="m6 6 12 12" />
+      <path d="m18 6-12 12" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

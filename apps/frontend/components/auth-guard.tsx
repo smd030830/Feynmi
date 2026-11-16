@@ -7,6 +7,7 @@ import { Button } from "@/components/button";
 import { useAccount } from "@/components/account-provider";
 import { nextAuthStep } from "@/lib/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { ApiError, apiErrorMessage } from "@/lib/api";
 
 // 로그인 이후 화면의 클라이언트 가드 (architecture.md 4.2). 실제 차단은 백엔드가 토큰으로 한다.
 // 로그인하지 않았으면 /login으로, 가입 단계가 남았으면 그 단계로 보낸다.
@@ -42,10 +43,13 @@ export function GuestOnly({ children }: { children: ReactNode }) {
 
 // 사용자 정보(GET /me)를 받지 못했을 때. 다시 시도하거나 로그아웃할 수 있다.
 export function AccountLoadError() {
-  const { retry } = useAccount();
+  const { retry, error } = useAccount();
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-canvas px-10 text-center">
+    <main className="auth-card-page flex min-h-[var(--viewport-height)] flex-col items-center justify-center gap-4 bg-canvas px-10 text-center">
       <p className="text-body-lg text-muted">계정 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.</p>
+      {error instanceof ApiError && (
+        <p role="alert" className="text-body text-muted">{apiErrorMessage(error)}</p>
+      )}
       <div className="flex gap-2">
         <Button onClick={retry}>다시 시도</Button>
         <Button variant="soft" onClick={() => void signOut(getFirebaseAuth())}>

@@ -229,5 +229,13 @@ __marimo__/
 .codex/
 .env.*
 !.env.example
+!.env.llm.example
 mise.local.toml
 *.local.toml
+
+# Local feature verification files (kept out of commits)
+.local-tests/
+.vercel/
+
+# Temporary credentials created by google-github-actions/auth
+gha-creds-*.json

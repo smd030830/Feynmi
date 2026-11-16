@@ -46,6 +46,8 @@ class ProjectResponse(BaseModel):
     state_counts: StateCounts
     material_count: int
     created_at: datetime
+    last_concept_title: str | None = None
+    last_studied_at: datetime | None = None
 
 
 class ProjectListResponse(BaseModel):
@@ -61,7 +63,7 @@ def _project_response(summary: ProjectSummary) -> ProjectResponse:
         name=project.name,
         description=project.description,
         color=ProjectColor(project.color),
-        score=None,  # 평균 규칙(FM-036)이 생기면 concepts.score로 계산한다
+        score=summary.score,
         state_counts=StateCounts(
             understood=counts[ConceptState.UNDERSTOOD],
             partial=counts[ConceptState.PARTIAL],
@@ -70,10 +72,12 @@ def _project_response(summary: ProjectSummary) -> ProjectResponse:
         ),
         material_count=summary.material_count,
         created_at=project.created_at,
+        last_concept_title=summary.last_concept_title,
+        last_studied_at=summary.last_studied_at,
     )
 
 
-@router.get("")
+@router.get("", response_model_exclude_defaults=True)
 async def list_projects(current: ProfileUser, db: DbSession) -> ProjectListResponse:
     summaries = await projects.list_projects(db, current.user.id)
     return ProjectListResponse(
@@ -82,7 +86,7 @@ async def list_projects(current: ProfileUser, db: DbSession) -> ProjectListRespo
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model_exclude_defaults=True)
 async def create_project(
     body: ProjectCreate, current: ProfileUser, db: DbSession
 ) -> ProjectResponse:
@@ -92,9 +96,9 @@ async def create_project(
     return _project_response(summary)
 
 
-@router.get("/{project_id}")
+@router.get("/{project_id}", response_model_exclude_defaults=True)
 async def get_project(
     project_id: uuid.UUID, current: ProfileUser, db: DbSession
 ) -> ProjectResponse:
-    # 최근 학습 3건(architecture.md 8.1)은 세션 기록(FM-044)에서 추가한다.
+    # 최근 학습 카드는 별도의 기록 조회 결과 중 첫 3건을 재사용한다.
     return _project_response(await projects.get_project(db, current.user.id, project_id))

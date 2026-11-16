@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Noto_Sans_KR, Plus_Jakarta_Sans } from "next/font/google";
 import { AccountProvider } from "@/components/account-provider";
 import "./globals.css";
@@ -20,6 +20,13 @@ const plusJakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "Feynmi",
   description: "자료를 올리고 내 말로 설명하며 이해도를 확인하는 학습 서비스",
+};
+
+// Safe Area(env(safe-area-inset-*))를 쓰려면 viewport-fit=cover가 필요하다.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

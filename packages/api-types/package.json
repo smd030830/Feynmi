@@ -1,0 +1,5 @@
+{
+  "name": "@feynmi/api-types",
+  "private": true,
+  "types": "index.ts"
+}
