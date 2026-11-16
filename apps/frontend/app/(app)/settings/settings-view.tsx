@@ -66,7 +66,20 @@ export function SettingsView() {
   return <div className="space-y-7">
     <header className="flex items-end justify-between max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-2"><div><p className="text-eyebrow font-bold text-primary-strong">MY FEYNMI</p><h1 className="mt-2 text-title-1 font-bold">설정</h1><p className="mt-1 text-body-lg text-muted">계정과 학습 환경을 관리하세요.</p></div><p role="status" aria-live="polite" className="text-caption text-subtle">{status || "변경사항은 자동으로 저장됩니다."}</p></header>
     <section className="flex items-center gap-6 rounded-card border border-line bg-surface p-7 max-[600px]:flex-wrap max-[600px]:gap-4 max-[600px]:p-5">
-      <Avatar url={me.avatar_url} nickname={nickname} /><div className="flex-1"><p className="text-caption text-subtle">프로필</p><h2 className="mt-1 text-title-2 font-bold">{nickname}</h2><p className="text-body text-muted">{me.email}</p><div className="mt-3 flex gap-2"><Tag>{me.sign_in_provider === "google.com" ? "Google 연결됨" : "이메일 계정"}</Tag><Tag>{me.email_verified ? "이메일 인증 완료" : "이메일 미인증"}</Tag></div></div><Button variant="soft" onClick={() => open("profile")}>프로필 수정</Button>
+      <Avatar url={me.avatar_url} nickname={nickname} /><div className="flex-1"><p className="text-caption text-subtle">프로필</p><h2 className="mt-1 text-title-2 font-bold">{nickname}</h2><p className="text-body text-muted">{me.email}</p><div className="mt-3 flex flex-wrap items-center gap-2">
+  <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas px-3 py-1.5 text-xs font-semibold text-muted">
+    <span className="flex size-4 items-center justify-center rounded-full bg-surface text-[10px] font-bold text-muted">G</span>
+    {me.sign_in_provider === "google.com" ? "Google 연결됨" : "이메일 계정"}
+  </span>
+  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${
+    me.email_verified
+      ? "bg-success-soft text-success"
+      : "bg-danger-soft text-danger"
+  }`}>
+    <span aria-hidden="true">{me.email_verified ? "✓" : "!"}</span>
+    {me.email_verified ? "이메일 인증 완료" : "이메일 미인증"}
+  </span>
+</div></div><Button variant="soft" onClick={() => open("profile")}>프로필 수정</Button>
     </section>
     {error && !dialog && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error}</p>}
     <div className="grid grid-cols-1 items-start gap-7 min-[901px]:grid-cols-[190px_minmax(0,1fr)]">
