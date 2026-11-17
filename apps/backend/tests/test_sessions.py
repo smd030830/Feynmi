@@ -356,6 +356,7 @@ async def test_session_continues_past_three_followups_until_full_score(setup: Se
     assert "강의.pdf" in view["messages"][0]["text"]
     assert "1쪽" in view["messages"][0]["text"]
     assert "프로세스" in view["messages"][0]["text"]
+    assert view["hint_source"] == {"material_title": "강의.pdf", "page_start": 1, "page_end": 2}
     assert not setup.provider.inputs
     for attempt in range(5):
         response = await answer(setup, sid, f"설명 {attempt}")
@@ -365,6 +366,9 @@ async def test_session_continues_past_three_followups_until_full_score(setup: Se
         assert body["followups_used"] == attempt + 1
         assert body["followup_question"]
         assert body["assessments"][-1]["score"] == 50
+        source = body["assessments"][-1]["elements"][0]["evidence"][0]
+        assert body["hint_source"] == source
+        assert "text" not in source
         assert "result-only" not in response.text
         assert "missing" not in body["assessments"][-1]["feedback"]
     assert (await setup.client.get(f"{URL}/sessions/{sid}/result")).status_code == 409
@@ -381,6 +385,10 @@ async def test_session_continues_past_three_followups_until_full_score(setup: Se
     body = result.json()
     assert body["score_change"] == 50
     assert body["remaining_core_count"] == 0
+    assert "hint_source" not in body
+    assert body["assessments"][0]["elements"][0]["evidence"][0]["text"] == (
+        "프로세스는 실행 중인 프로그램이다."
+    )
     assert body["recommendation"]["concept_id"] == str(setup.next_concept_id)
     assert body["assessments"][0]["feedback"]["supplement"] == "result-only supplement"
     assert body["assessments"][-1]["feedback"]["supplement"] == ""
@@ -534,9 +542,21 @@ async def test_missing_verdict_can_have_no_learner_quote(setup: Setup) -> None:
     sid = await start(setup)
     setup.provider.verdict = Verdict.MISSING
     setup.provider.omit_quote = True
+    setup.provider.omit_evidence = True
     response = await answer(setup, sid)
     assert response.status_code == 200, response.text
     assert response.json()["assessments"][-1]["score"] == 0
+    assert response.json()["assessments"][-1]["elements"][0]["evidence"] == []
+    assert response.json()["hint_source"]["page_start"] == 1
+
+    setup.provider.verdict = Verdict.MET
+    setup.provider.omit_quote = False
+    setup.provider.omit_evidence = False
+    assert (await answer(setup, sid)).status_code == 200
+    result = await setup.client.get(f"{URL}/sessions/{sid}/result")
+    missing = result.json()["assessments"][0]["elements"][0]
+    assert missing["learner_quote"] is None
+    assert missing["evidence"][0]["basis_only"] is True
 
 
 async def test_weekly_summary_goal_and_project_scores_follow_assessment(setup: Setup) -> None:

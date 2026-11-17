@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Conversation, FeedbackList, StateBadge } from "@/components/learning-feedback";
 import { MisconceptionReview } from "@/components/misconception-review";
+import { AssessmentEvidence } from "@/components/assessment-evidence";
 import { ProgressRing } from "@/components/progress-ring";
 import { apiErrorMessage, getSessionResult, type LearningSession } from "@/lib/api";
 import { useStartLearning } from "@/lib/use-start-learning";
@@ -48,6 +49,7 @@ export function ResultView() {
       <div><p className="mb-3 text-caption font-bold text-subtle">현재 단계</p><StateBadge state={final?.state ?? "not_studied"} /><p className="mt-4 text-body font-bold text-muted">{session.remaining_core_count === 0 ? "모든 핵심 요소를 충족했어요" : `이해까지 남은 핵심 요소 ${session.remaining_core_count ?? 0}개`}</p><progress aria-label="충족한 핵심 요소" className="mt-3 h-2 w-full accent-primary" max={coreCount || 1} value={coreCount - (session.remaining_core_count ?? 0)} /></div>
     </section>
     <MisconceptionReview session={session} />
+    <AssessmentEvidence assessments={session.assessments} />
     {needsWork ? (improvementParts.length > 0 && <section className="grid gap-4 md:grid-cols-2" aria-label="설명 분석">{improvementParts.map((part) => <div key={part.title} className={`rounded-card border border-line p-5 ${part.bg}`}><h2 className={`mb-4 text-subheading font-bold ${part.color}`}>{part.title}</h2><FeedbackList items={part.items} /></div>)}</section>) : <p className="text-body text-subtle">추가로 보완할 부분이 없어요.</p>}
     {needsWork && !!feedback?.supplement?.trim() && <section className="rounded-card border border-line bg-surface p-6"><h2 className="text-heading font-bold">상세 풀이</h2><p className="mt-4 whitespace-pre-wrap text-body-lg text-muted">{feedback.supplement}</p></section>}
     {!!feedback?.unverified_statements?.length && <section className="rounded-card border border-line bg-primary-soft p-6"><h2 className="text-heading font-bold text-primary-strong">자료에서 확인되지 않음</h2>{feedback.unverified_statements.map((item, i) => <p key={i} className="mt-2 text-body text-muted">“{item.learner_quote}” · {item.note}</p>)}</section>}

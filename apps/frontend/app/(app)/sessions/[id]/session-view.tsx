@@ -135,7 +135,8 @@ export function SessionView() {
   if (loaded?.id === id && loaded.error) return <div role="alert" className="rounded-card border border-line bg-surface p-8"><p>{loaded.error}</p><Button className="mt-4" onClick={() => setAttempt((n) => n + 1)}>다시 시도</Button></div>;
   if (!session) return <p aria-busy className="text-body text-subtle">학습을 불러오고 있어요…</p>;
   const latest = session.assessments.at(-1);
-  const currentQuestion = session.messages.filter((m) => m.role === "question").at(-1)?.text;
+  const currentQuestion = session.messages.findLast((message) => message.role === "question");
+  const hintSource = session.hint_source;
   const ended = session.status !== "in_progress";
   const evidence = [...new Map(latest?.elements.flatMap((e) => e.evidence).map((e) => [e.id, e]) ?? []).values()];
 
@@ -149,7 +150,26 @@ export function SessionView() {
       <section className="min-w-0 space-y-6"><div className="flex justify-between"><h2 className="text-heading font-bold">{ended ? "중단된 학습의 대화" : "설명하며 이해하기"}</h2>{pending && <span role="status" className="text-caption text-primary-strong">대화 분석 중…</span>}</div>
         <Conversation messages={session.messages} assessments={session.assessments} />
         {!ended ? <form onSubmit={send} className="min-w-0 rounded-card border border-primary-line bg-surface p-4 shadow-brand sm:p-5">
-          <p className="text-caption font-bold text-primary-strong">현재 질문</p><p className="mt-1 text-body text-muted">{currentQuestion}</p>
+          <p className="text-caption font-bold text-primary-strong">현재 질문</p><p className="mt-1 text-body text-muted">{currentQuestion?.text}</p>
+          {currentQuestion && hintSource && (
+            <details key={currentQuestion.id} className="mt-3 rounded-control border border-line bg-canvas p-3">
+              <summary className="cursor-pointer text-caption font-bold text-primary-strong">힌트 보기</summary>
+              <p className="mt-2 break-words text-caption text-muted">
+                「{hintSource.material_title}」
+                {hintSource.page_start != null && (
+                  <> · {hintSource.page_start}{hintSource.page_end != null && hintSource.page_end !== hintSource.page_start ? `–${hintSource.page_end}` : ""}쪽/슬라이드</>
+                )}에서 질문과 관련된 부분을 찾아보세요.
+              </p>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-caption font-semibold text-primary-strong">생각의 실마리 보기</summary>
+                <p className="mt-2 text-caption text-muted">
+                  {latest
+                    ? "지금 질문에 해당하는 사례를 하나 골라보세요. 조건 하나가 달라지면 결과가 어떻게 바뀔까요? 그 이유를 설명해 보세요."
+                    : "질문에서 설명하라고 한 대상이나 조건을 하나 골라보세요. 자료 속 사례에서 언제 나타나고 왜 그런지 한 문장씩 설명해 보세요."}
+                </p>
+              </details>
+            </details>
+          )}
           <label htmlFor="learner-answer" className="sr-only">나의 설명</label><textarea id="learner-answer" value={answer} onChange={(e) => { setAnswer(e.target.value); setAnswerError(""); }} disabled={pending} placeholder="내 말로 설명해보세요..." className={`mt-4 min-h-36 w-full resize-y rounded-control border p-4 text-body-lg disabled:opacity-60 ${
   answerError ? "border-danger" : "border-line"
 }`} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void send(); } }} />

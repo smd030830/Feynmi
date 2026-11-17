@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import TypeAdapter
-from sqlalchemy import delete, func, or_, select, true, update
+from sqlalchemy import any_, delete, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import (
@@ -378,7 +378,7 @@ async def _session_view(
     session_id = session.id
     if session.concept_id is None:
         raise AppError(404, "not_found")
-    concept, _, project = await _owned_concept(db, user_id, session.concept_id)
+    concept, material, project = await _owned_concept(db, user_id, session.concept_id)
     completed = session.status == SessionStatus.COMPLETED
     messages = list(
         await db.scalars(
@@ -404,10 +404,19 @@ async def _session_view(
         )
         element_views = []
         for verdict, element in rows:
+            evidence_ids = verdict.evidence_chunk_ids
+            # A missing answer can have no cited chunk. Show the checklist source in results.
+            basis_only = completed and not evidence_ids
+            if basis_only:
+                evidence_ids = element.evidence_chunk_ids
             chunks = await db.execute(
                 select(Chunk, Material.title)
                 .join(Material, Material.id == Chunk.material_id)
-                .where(Chunk.id.in_(verdict.evidence_chunk_ids))
+                .where(
+                    Chunk.id.in_(evidence_ids),
+                    Chunk.project_id == project.id,
+                    Material.project_id == project.id,
+                )
                 .order_by(Chunk.id)
             )
             element_view = {
@@ -422,6 +431,7 @@ async def _session_view(
                         "material_title": title,
                         "page_start": chunk.page_start,
                         "page_end": chunk.page_end,
+                        **({"text": chunk.text, "basis_only": basis_only} if completed else {}),
                     }
                     for chunk, title in chunks
                 ],
@@ -512,6 +522,37 @@ async def _session_view(
         view["followup_question"] = (
             messages[-1].text if messages and messages[-1].role == MessageRole.QUESTION else None
         )
+        latest_elements = items[-1]["elements"] if items else []
+        hint_source = next(
+            (
+                element["evidence"][0]
+                for importance in (Importance.CORE, Importance.SUPPORTING)
+                for element in latest_elements
+                if element["importance"] == importance
+                and element["verdict"] != Verdict.MET
+                and element["evidence"]
+            ),
+            None,
+        )
+        if hint_source is None:
+            source_chunk = await db.scalar(
+                select(Chunk)
+                .join(ConceptElement, Chunk.id == any_(ConceptElement.evidence_chunk_ids))
+                .where(
+                    ConceptElement.concept_id == concept.id,
+                    ConceptElement.importance == Importance.CORE,
+                    Chunk.material_id == material.id,
+                    Chunk.project_id == project.id,
+                )
+                .order_by(Chunk.page_start, Chunk.id)
+                .limit(1)
+            )
+            hint_source = {
+                "material_title": material.title,
+                "page_start": source_chunk.page_start if source_chunk else None,
+                "page_end": source_chunk.page_end if source_chunk else None,
+            }
+        view["hint_source"] = hint_source
     return view
 
 

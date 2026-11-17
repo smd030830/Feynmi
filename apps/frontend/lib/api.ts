@@ -154,7 +154,7 @@ export type LearningMessage = {
   id: string; seq: number; role: "question" | "answer"; text: string; created_at: string;
   confidence?: AnswerConfidence | null;
 };
-export type Evidence = { id: string; material_title: string; page_start: number; page_end: number };
+export type Evidence = { id: string; material_title: string; page_start: number; page_end: number; text?: string; basis_only?: boolean };
 export type Assessment = {
   id: string; seq: number; state: ConceptState; score: number; created_at: string;
   answer_message_id?: string | null;
@@ -176,6 +176,7 @@ export type LearningSession = {
   followups_used: number; started_at: string; ended_at: string | null;
   messages: LearningMessage[]; assessments: Assessment[]; score_change: number | null;
   remaining_core_count: number | null;
+  hint_source?: { material_title: string; page_start: number | null; page_end: number | null };
   recommendation: null | {
     concept_id: string; concept_title: string; project_id: string; project_name: string;
     state: ConceptState; score: number | null; reason: string;
