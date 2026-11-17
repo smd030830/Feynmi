@@ -4,6 +4,13 @@ import { useSearchParams } from "next/navigation";
 
 export function LogoutNotice() {
   const params = useSearchParams();
+  if (params.get("notice") === "session-expired") {
+    return (
+      <p role="status" className="mt-5 rounded-control bg-warning-soft p-4 text-body text-warning">
+        오랫동안 활동이 없어 로그아웃됐어요. 다시 로그인해주세요.
+      </p>
+    );
+  }
   if (params.get("notice") !== "logout-incomplete") return null;
   return (
     <p role="status" className="mt-5 rounded-control bg-warning-soft p-4 text-body text-warning">

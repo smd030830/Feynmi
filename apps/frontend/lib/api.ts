@@ -1,4 +1,5 @@
 import type { Schemas } from "@feynmi/api-types";
+import { signOut } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
 
 // 백엔드 API 호출 (architecture.md 4.2, 8). 호출 직전에 ID 토큰을 받아 Bearer로 붙인다.
@@ -42,6 +43,7 @@ const MESSAGES: Record<string, string> = {
   network_error: "서버에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해주세요.",
   unauthenticated: "로그인이 필요합니다. 다시 로그인해주세요.",
   token_revoked: "로그아웃된 기기입니다. 다시 로그인해주세요.",
+  session_idle_timeout: "오랫동안 활동이 없어 로그아웃됐어요. 다시 로그인해주세요.",
   email_not_verified: "이메일 인증을 먼저 완료해주세요.",
   profile_required: "닉네임을 먼저 설정해주세요.",
   validation_error: "입력한 내용을 확인해주세요.",
@@ -111,6 +113,14 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = 
   }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
+    if (response.status === 401 && body?.error?.code === "session_idle_timeout") {
+      const auth = getFirebaseAuth();
+      if (auth.currentUser === user) {
+        await signOut(auth).then(() => {
+          if (!auth.currentUser) window.location.replace("/login?notice=session-expired");
+        }).catch(() => { /* 다음 확인에서 로그아웃을 다시 시도한다. */ });
+      }
+    }
     throw new ApiError(
       response.status,
       body?.error?.code ?? "internal_error",
@@ -123,6 +133,13 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = 
 // refreshToken: 이메일 인증 직후처럼 토큰의 클레임을 갱신해야 할 때 true
 export function getMe(refreshToken = false) {
   return apiFetch<Me>("/me", {}, refreshToken);
+}
+
+export function checkLoginSession(background = true) {
+  return apiFetch<void>("/me/session", {
+    cache: "no-store",
+    headers: background ? { "X-Feynmi-Background": "1" } : undefined,
+  });
 }
 
 export function updateProfile(nickname: string) {
@@ -278,8 +295,10 @@ export function giveAiConsent() {
   return apiFetch<Me>("/me/ai-consent", { method: "POST" });
 }
 
-export function listMaterials(projectId: string) {
-  return apiFetch<{ items: Material[] }>(`/projects/${encodeURIComponent(projectId)}/materials`);
+export function listMaterials(projectId: string, background = false) {
+  return apiFetch<{ items: Material[] }>(`/projects/${encodeURIComponent(projectId)}/materials`, {
+    headers: background ? { "X-Feynmi-Background": "1" } : undefined,
+  });
 }
 
 type UploadUrl = Schemas["UploadUrlResponse"];

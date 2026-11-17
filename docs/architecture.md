@@ -184,6 +184,7 @@ api (라우터, 요청/응답 스키마, 인증 의존성)
 1. `get_current_user`: `Authorization` 헤더의 ID 토큰을 Firebase 공개 인증서(`auth/firebase.py`, Cache-Control 기간만큼 캐시)로 검증한다. 서명, 만료, `aud`(= `FIREBASE_PROJECT_ID`), `iss`를 확인하며 서비스 계정 자격 증명은 필요 없다. 동기 함수이므로 스레드풀에서 실행한다. 토큰 폐기·탈퇴처럼 Firebase 계정을 바꾸는 작업(FM-071, FM-073)만 Admin SDK와 자격 증명을 쓴다. 토큰이 없거나 유효하지 않으면 `401 unauthenticated`를 반환한다.
 2. 검증된 `uid`로 `users` 행을 upsert하고 이메일과 로그인 수단(`firebase.sign_in_provider`)을 동기화한다. 처음 생성하기 전에는 해당 계정이 Firebase에 남아 있는지 확인한다. `FIREBASE_WEB_API_KEY`(로컬 파일에서는 `NEXT_PUBLIC_FIREBASE_API_KEY`도 허용)가 설정되면 서명 검증이 끝난 원본 ID 토큰으로 공식 `accounts:lookup` 사용자 조회 API를 호출하고 UID·차단 상태·`validSince`를 검사한다. 조회 실패 시 계정을 생성하지 않는다. 키가 없으면 기존 Admin SDK 조회를 사용한다. 계정 변경 작업은 계속 Admin SDK 자격 증명이 필요하다.
 3. **토큰 폐기 확인**(모든 기기에서 로그아웃, FR-4.6): 토큰의 `auth_time`이 `users.tokens_revoked_at`보다 이전이면 `401 token_revoked`를 반환한다. Firebase의 `check_revoked=True`는 요청마다 Firebase를 추가로 호출하므로 쓰지 않고 DB 값으로 비교한다. Firebase 쪽 refresh token도 `revoke_refresh_tokens`로 함께 폐기해서 새 토큰이 발급되지 않게 한다.
+   - **비활동 만료**(FR-4.6): 검증된 `(user_id, auth_time)`별 마지막 활동을 PostgreSQL에 저장한다. 최초 요청에는 로그인 시각을 기준으로 만료 여부를 확인하고, 이후에는 유효한 세션만 원자적으로 갱신한다. `X-Feynmi-Background: 1` 요청은 만료 여부만 확인한다. `GET /me/session`은 로그인 세션 확인에 사용하며, 만료 시 `401 session_idle_timeout`을 반환한다.
 4. `require_verified_email`: 토큰의 `email_verified`가 false면 `403 email_not_verified`를 반환한다. `/me` 계열을 뺀 모든 사용자 API에 적용한다. 구글 로그인 계정은 Firebase가 인증된 상태로 발급한다.
 5. `require_profile`: `users.nickname`이 없으면 `403 profile_required`를 반환한다. `/me` 계열을 뺀 모든 사용자 API에 적용한다.
 6. 업로드 URL 발급은 `users.ai_consent_at`이 없으면 `403 ai_consent_required`를 반환한다 (FR-1.8).
@@ -517,7 +518,7 @@ sequenceDiagram
 | HTTP | code |
 |---|---|
 | 400 | `validation_error`, `unsupported_format`, `file_too_large` |
-| 401 | `unauthenticated`, `token_revoked` |
+| 401 | `unauthenticated`, `token_revoked`, `session_idle_timeout` |
 | 403 | `email_not_verified`, `profile_required`, `ai_consent_required` |
 | 404 | `not_found` (남의 리소스 포함) |
 | 409 | `invalid_state` (예: 종료된 세션에 답변), `evaluation_in_progress`, `upload_not_found` |

@@ -2,7 +2,7 @@
 
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
-import { getMe, type Me } from "@/lib/api";
+import { checkLoginSession, getMe, type Me } from "@/lib/api";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { loadAccount } from "@/lib/load-account";
 
@@ -19,6 +19,7 @@ type Account = {
 };
 
 const AccountContext = createContext<Account | null>(null);
+const SESSION_CHECK_INTERVAL = 60_000;
 
 // Firebase 로그인 상태와 백엔드의 사용자 정보(GET /me)를 앱 전체에서 한 번만 가져온다.
 export function AccountProvider({ children }: { children: ReactNode }) {
@@ -29,6 +30,37 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const uid = user?.uid;
 
   useEffect(() => onAuthStateChanged(getFirebaseAuth(), setUser), []);
+
+  useEffect(() => {
+    if (!user) return;
+    let lastInteractionCheck = 0;
+    const check = (background = true) => {
+      if (getFirebaseAuth().currentUser === user) {
+        void checkLoginSession(background).catch(() => { /* API 오류 처리는 호출 모듈에서 한다. */ });
+      }
+    };
+    const checkVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    const onInteraction = (event: Event) => {
+      const now = Date.now();
+      if (!event.isTrusted || now - lastInteractionCheck < SESSION_CHECK_INTERVAL) return;
+      lastInteractionCheck = now;
+      check(false);
+    };
+    const timer = window.setInterval(checkVisible, SESSION_CHECK_INTERVAL);
+    document.addEventListener("visibilitychange", checkVisible);
+    window.addEventListener("focus", checkVisible);
+    window.addEventListener("pointerdown", onInteraction);
+    window.addEventListener("keydown", onInteraction);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", checkVisible);
+      window.removeEventListener("focus", checkVisible);
+      window.removeEventListener("pointerdown", onInteraction);
+      window.removeEventListener("keydown", onInteraction);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!uid) return;

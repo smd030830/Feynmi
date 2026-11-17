@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.account_lookup import check_account
+from backend.auth.activity import enforce_idle_timeout
 from backend.auth.firebase import TokenVerifier, VerifiedToken
 from backend.db.models import User
 from backend.domain.enums import UserStatus
@@ -120,7 +121,7 @@ async def _sync_user(
     return user
 
 
-async def get_current_user(
+async def get_authenticated_user(
     request: Request,
     db: DbSession,
     verify: Annotated[TokenVerifier, Depends(get_token_verifier)],
@@ -141,6 +142,20 @@ async def get_current_user(
     return CurrentUser(user=user, token=token)
 
 
+async def get_current_user(
+    request: Request,
+    db: DbSession,
+    current: Annotated[CurrentUser, Depends(get_authenticated_user)],
+) -> CurrentUser:
+    await enforce_idle_timeout(
+        db,
+        current.user.id,
+        current.token.auth_time,
+        touch=request.headers.get("X-Feynmi-Background") != "1",
+    )
+    return current
+
+
 async def get_deleting_user(
     request: Request,
     db: DbSession,
@@ -156,6 +171,7 @@ async def get_deleting_user(
             raise AppError(401, "token_revoked")
         if not token.email_verified or not user.nickname:
             raise AppError(403, "profile_required")
+        await enforce_idle_timeout(db, user.id, token.auth_time)
     return CurrentUser(user=user, token=token)
 
 

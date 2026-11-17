@@ -73,6 +73,9 @@ export type Paths = {
   "/api/v1/me/revoke-sessions": {
     "post": { parameters?: never; requestBody?: never; responses: { "200": Record<string, boolean>; }; };
   };
+  "/api/v1/me/session": {
+    "get": { parameters?: never; requestBody?: never; responses: { "204": void; }; };
+  };
   "/api/v1/me/settings": {
     "get": { parameters?: never; requestBody?: never; responses: { "200": Schemas["SettingsResponse"]; }; };
     "patch": { parameters?: never; requestBody: Schemas["SettingsUpdate"]; responses: { "200": Schemas["SettingsResponse"]; "422": Schemas["HTTPValidationError"]; }; };

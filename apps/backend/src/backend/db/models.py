@@ -146,6 +146,14 @@ class LoginEvent(Base):
 Index("ix_login_events_user_id_occurred_at", LoginEvent.user_id, LoginEvent.occurred_at.desc())
 
 
+class LoginSession(Base):
+    __tablename__ = "login_sessions"
+
+    user_id: Mapped[uuid.UUID] = _fk("users.id", primary_key=True)
+    auth_time: Mapped[datetime] = mapped_column(primary_key=True)
+    last_activity_at: Mapped[datetime]
+
+
 class Project(Base):
     __tablename__ = "projects"
     __table_args__ = (_enum_check("color", ProjectColor),)

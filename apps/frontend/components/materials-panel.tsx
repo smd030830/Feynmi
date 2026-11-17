@@ -61,10 +61,10 @@ export function MaterialsPanel({
   const deletePending = useRef(false);
   const input = useRef<HTMLInputElement>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (background = false) => {
     setReloading(true);
     try {
-      const { items } = await listMaterials(projectId);
+      const { items } = await listMaterials(projectId, background);
       setItems(items);
       setLoadError(undefined);
       onCountChange(items.length);
@@ -84,7 +84,7 @@ export function MaterialsPanel({
   const busy = items?.some((m) => IN_PROGRESS.includes(m.status)) ?? false;
   useEffect(() => {
     if (!busy) return;
-    const timer = setInterval(() => void refresh(), POLL_MS);
+    const timer = setInterval(() => void refresh(true), POLL_MS);
     return () => clearInterval(timer);
   }, [busy, refresh]);
 

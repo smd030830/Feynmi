@@ -84,6 +84,13 @@ async def get_me(
     return await _me_response(current, cloud)
 
 
+@router.get("/session", status_code=204)
+async def check_session(
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+) -> None:
+    pass
+
+
 @router.patch("/profile")
 async def update_profile(
     body: ProfileUpdate,

@@ -70,7 +70,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_methods=["*"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-Feynmi-Background"],
     )
 
     # 헬스 체크는 인증 없이 접두사 밖에 둔다 (Cloud Run, compose 확인용).
