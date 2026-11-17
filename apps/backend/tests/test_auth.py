@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from backend.api.deps import CurrentUser, require_profile, require_verified_email
 from backend.auth.firebase import VerifiedToken
 from backend.config import Settings
-from backend.db.models import User
+from backend.db.models import LoginSession, User
 from backend.db.session import make_session_factory
 from backend.domain.enums import SignInProvider
 from backend.errors import AppError
@@ -93,6 +93,46 @@ async def count_users(engine: AsyncEngine) -> int:
 async def get_user(engine: AsyncEngine, uid: str = "uid-1") -> User:
     async with make_session_factory(engine)() as db:
         return await db.scalar(select(User).where(User.firebase_uid == uid))  # pyright: ignore[reportReturnType]
+
+
+async def test_idle_timeout_is_per_sign_in_and_background_checks_do_not_extend_it(
+    client: httpx.AsyncClient, engine: AsyncEngine, tokens: dict[str, VerifiedToken]
+) -> None:
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=4)
+    recent = now - timedelta(hours=1)
+    past_activity = now - timedelta(hours=2)
+    tokens.update(old=make_token(auth_time=old), refreshed=make_token(auth_time=old))
+    tokens["recent"] = make_token(auth_time=recent)
+    tokens["other"] = make_token("uid-2", email="b@example.com", auth_time=old)
+    url = f"{API_PREFIX}/me/session"
+
+    unseen = await client.get(url, headers=bearer("old"))
+    assert unseen.status_code == 401
+    assert unseen.json()["error"]["code"] == "session_idle_timeout"
+    assert (await client.get(url, headers=bearer("recent"))).status_code == 204
+    user = await get_user(engine)
+    async with make_session_factory(engine)() as db:
+        db.add(LoginSession(user_id=user.id, auth_time=old, last_activity_at=past_activity))
+        await db.commit()
+
+    passive = {**bearer("old"), "X-Feynmi-Background": "1"}
+    assert (await client.get(url, headers=passive)).status_code == 204
+    async with make_session_factory(engine)() as db:
+        row = await db.get(LoginSession, (user.id, old))
+        assert row is not None and row.last_activity_at == past_activity
+    assert (await client.get(url, headers=bearer("refreshed"))).status_code == 204
+    async with make_session_factory(engine)() as db:
+        row = await db.get(LoginSession, (user.id, old))
+        assert row is not None and row.last_activity_at >= now
+        row.last_activity_at = now - timedelta(hours=3)
+        await db.commit()
+
+    for headers in (passive, bearer("old"), bearer("refreshed"), bearer("other")):
+        rejected = await client.get(url, headers=headers)
+        assert rejected.status_code == 401
+        assert rejected.json()["error"]["code"] == "session_idle_timeout"
+    assert (await client.get(url, headers=bearer("recent"))).status_code == 204
 
 
 @pytest.mark.parametrize(

@@ -94,11 +94,17 @@ def test_error_format(
 
 
 def test_cors_allows_configured_origin_only(client: TestClient) -> None:
-    preflight = {"Access-Control-Request-Method": "GET"}
-    allowed = client.options("/health", headers={"Origin": ORIGIN, **preflight})
+    preflight = {
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "authorization,x-feynmi-background",
+    }
+    path = f"{API_PREFIX}/me/session"
+    allowed = client.options(path, headers={"Origin": ORIGIN, **preflight})
+    assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == ORIGIN
+    assert "x-feynmi-background" in allowed.headers["access-control-allow-headers"].lower()
 
-    denied = client.options("/health", headers={"Origin": "https://evil.example", **preflight})
+    denied = client.options(path, headers={"Origin": "https://evil.example", **preflight})
     assert "access-control-allow-origin" not in denied.headers
 
 

@@ -17,6 +17,7 @@ EXPECTED_TABLES = {
     "users",
     "user_settings",
     "login_events",
+    "login_sessions",
     "projects",
     "materials",
     "chunks",

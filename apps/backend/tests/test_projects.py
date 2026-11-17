@@ -139,6 +139,9 @@ async def test_other_users_project_is_not_found(client: httpx.AsyncClient) -> No
         res = await client.get(f"{URL}/{path}", headers=auth(BOB))
         assert res.status_code == 404
         assert res.json()["error"]["code"] == "not_found"
+    bobs_project = (await create(client, BOB)).json()
+    assert (await client.get(f"{URL}/{bobs_project['id']}", headers=auth(ALICE))).status_code == 404
+    assert (await client.get(f"{URL}/{bobs_project['id']}", headers=auth(BOB))).status_code == 200
 
 
 async def test_invalid_project_id_is_rejected(client: httpx.AsyncClient) -> None:

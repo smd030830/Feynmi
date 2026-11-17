@@ -595,9 +595,10 @@ async def test_other_users_cannot_touch_materials(client: httpx.AsyncClient, pro
         await upload(client, project, "남의것.pdf", make_pdf(["x"]), token=BOB),
         await client.get(f"{API_PREFIX}/projects/{project}/materials", headers=auth(BOB)),
         await client.post(f"{API_PREFIX}/materials/{item['id']}/retry", headers=auth(BOB)),
+        await client.delete(f"{API_PREFIX}/materials/{item['id']}", headers=auth(BOB)),
         await upload(client, str(uuid.uuid4()), "없는곳.pdf", make_pdf(["x"])),
     ]
-    assert [r.status_code for r in checks] == [404] * 4
+    assert [r.status_code for r in checks] == [404] * 5
     assert len(await materials(client, project)) == 1
 
 
