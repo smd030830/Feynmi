@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import func, select, text
@@ -18,6 +19,7 @@ from backend.db.models import (
     ConceptMisconception,
     Feedback,
     LoginEvent,
+    LoginSession,
     Material,
     Message,
     Project,
@@ -260,10 +262,12 @@ async def test_embedding_dimension_is_enforced(db: AsyncSession) -> None:
 async def test_deleting_user_removes_all_user_data(db: AsyncSession) -> None:
     """회원 탈퇴는 users 행 삭제 하나로 끝나야 한다 (PRD FR-4.7)."""
     graph = await seed(db)
+    now = datetime.now(UTC)
     db.add_all(
         [
             UserSettings(user_id=graph.user.id),
             LoginEvent(user_id=graph.user.id, client_summary="Chrome · macOS"),
+            LoginSession(user_id=graph.user.id, auth_time=now, last_activity_at=now),
         ]
     )
     chunk = Chunk(
@@ -308,7 +312,7 @@ async def test_deleting_user_removes_all_user_data(db: AsyncSession) -> None:
         }
 
     before = await counts()
-    assert all(n > 0 for n in before.values()), before  # 14개 테이블 모두에 데이터가 있다
+    assert all(n > 0 for n in before.values()), before
 
     await db.delete(graph.user)
     await db.flush()
