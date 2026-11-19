@@ -6,6 +6,7 @@
 import asyncio
 import base64
 import json
+import logging
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -19,6 +20,8 @@ from pydantic import BaseModel, ConfigDict
 from backend.db.models import EMBEDDING_DIMENSIONS
 from backend.llm.config import LLMSettings
 from backend.llm.schemas import AnswerRelevanceOutput, AssessmentOutput
+
+logger = logging.getLogger(__name__)
 
 
 class LLMTask(StrEnum):
@@ -149,9 +152,18 @@ class OpenAIProvider:
                 if response.status_code == 429 or response.status_code >= 500:
                     raise _InvalidOutput("transient upstream failure")
                 if response.is_error:
+                    logger.warning(
+                        "llm_request_rejected operation=%s status=%s", path, response.status_code
+                    )
                     raise LLMError(f"OpenAI request rejected (HTTP {response.status_code})")
                 return parse(response.json())
-            except httpx.TransportError, ValueError, KeyError, TypeError, AttributeError:
+            except (httpx.TransportError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                logger.warning(
+                    "llm_attempt_failed operation=%s attempt=%s error_type=%s",
+                    path,
+                    attempt + 1,
+                    type(exc).__name__,
+                )
                 if attempt == self.settings.llm_max_retries:
                     raise LLMError("OpenAI request or output validation failed") from None
                 # ValueError includes Pydantic and caller-provided semantic validation failures.

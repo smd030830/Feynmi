@@ -13,8 +13,8 @@ const stateColors: Record<ConceptState, string> = {
   understood: "bg-success-soft text-success", partial: "bg-warning-soft text-warning",
   misconception: "bg-danger-soft text-danger", not_studied: "bg-canvas text-subtle",
 };
-export function StateBadge({ state }: { state: ConceptState }) {
-  return <span className={`inline-flex rounded-full px-3 py-1 text-caption font-bold ${stateColors[state]}`}>{stateLabels[state]}</span>;
+export function StateBadge({ state, score }: { state: ConceptState; score?: number | null }) {
+  return <span className={`inline-flex rounded-full px-3 py-1 text-caption font-bold ${stateColors[state]}`}>{state === "partial" && score === 0 ? "이해 확인 필요" : stateLabels[state]}</span>;
 }
 export function FeedbackList({ items }: { items: string[] }) {
   return items.length ? <ul className="list-disc space-y-2 pl-5 text-body text-muted">{items.map((item, i) => <li key={i} className="whitespace-pre-line">{item}</li>)}</ul> : <p className="text-body text-subtle">해당 없음</p>;
@@ -76,7 +76,7 @@ export function Conversation({ messages, assessments, showFeedback = true }: { m
         </>
       )}
       {showFeedback && assessment && <div className="mt-3 space-y-3 rounded-control border border-primary-line bg-surface p-4">
-        <div className="flex items-center gap-2"><StateBadge state={assessment.state} /><span className="text-body font-bold text-primary-strong">{assessment.score}%</span></div>
+        <div className="flex items-center gap-2"><StateBadge state={assessment.state} score={assessment.score} /><span className="text-body font-bold text-primary-strong">{assessment.score}%</span></div>
         <ImprovementFeedback assessment={assessment} />
       </div>}
     </div>;

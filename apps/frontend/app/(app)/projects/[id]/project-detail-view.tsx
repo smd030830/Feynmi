@@ -259,7 +259,7 @@ export function ProjectDetailView() {
                     <span className="min-w-0 flex-1 max-[600px]:basis-full">
                       <span className="block text-caption text-subtle">{concept.material_title}</span>
                       <span role="heading" aria-level={3} className="mt-1 block text-subheading font-bold">{concept.title}</span>                    </span>
-                    <StateBadge state={concept.state} />
+                    <StateBadge state={concept.state} score={concept.score} />
                     <span className="min-w-12 text-right text-body font-bold text-muted">{concept.score === null ? "-" : `${concept.score}%`}</span>
                     <span className={buttonStyles("soft")}>{concept.state === "not_studied" ? "학습하기" : "다시 학습"}</span>
                   </button>

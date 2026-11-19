@@ -79,15 +79,14 @@ export function SessionView() {
     if (session?.status === "completed") router.replace(`/sessions/${id}/result`);
   }, [session, id, router]);
 
-  async function send(event?: FormEvent) {
-    event?.preventDefault();
-    if (!answer.trim() || speechIsActive() || live.current.pending || session?.status !== "in_progress") return;
+  async function evaluateAnswer(text: string, confidence?: AnswerConfidence, retry = false) {
+    if (!text.trim() || speechIsActive() || live.current.pending || session?.status !== "in_progress") return;
     live.current.pending = true;
     setPending(true); setError(""); setAnswerError("");
     try {
-      const confidence = confidenceDraft?.id === id ? confidenceDraft.value : undefined;
-      const updated = await submitAnswer(id, answer.trim(), confidence);
-      setLoaded({ id, session: updated }); setAnswer(""); setConfidenceDraft(undefined);
+      const updated = await submitAnswer(id, text.trim(), confidence);
+      setLoaded({ id, session: updated });
+      if (!retry) { setAnswer(""); setConfidenceDraft(undefined); }
     } catch (err) {
       if (err instanceof ApiError && ["off_topic_response", "answer_filter_unavailable"].includes(err.code)) {
         setAnswerError(apiErrorMessage(err));
@@ -97,6 +96,11 @@ export function SessionView() {
       // 실패한 답변도 서버에 보관될 수 있으므로 대화를 다시 읽는다.
       try { setLoaded({ id, session: await getSession(id) }); } catch { /* 기존 대화와 입력을 유지한다. */ }
     } finally { live.current.pending = false; setPending(false); }
+  }
+  function send(event?: FormEvent) {
+    event?.preventDefault();
+    const confidence = confidenceDraft?.id === id ? confidenceDraft.value : undefined;
+    void evaluateAnswer(answer, confidence);
   }
   function finish() {
     if (!session || live.current.pending) return;
@@ -116,6 +120,13 @@ export function SessionView() {
   const currentQuestion = session.messages.findLast((message) => message.role === "question");
   const hintSource = session.hint_source;
   const ended = session.status !== "in_progress";
+  const lastAnswer = session.messages.findLast((message) => message.role === "answer");
+  const unassessedAnswer = lastAnswer && !session.assessments.some((assessment) => {
+    if (assessment.answer_message_id) return assessment.answer_message_id === lastAnswer.id;
+    const nextAnswer = session.messages.find((message) => message.role === "answer" && message.seq > lastAnswer.seq);
+    return Date.parse(assessment.created_at) >= Date.parse(lastAnswer.created_at)
+      && (!nextAnswer || Date.parse(assessment.created_at) < Date.parse(nextAnswer.created_at));
+  }) ? lastAnswer : undefined;
 
   return <div className="space-y-7">
     <div className="flex items-center justify-between">{session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>나중에 이어하기</Button>}</div>
@@ -126,6 +137,10 @@ export function SessionView() {
     <div className="min-w-0">
       <section className="min-w-0 space-y-6"><div className="flex justify-between"><h2 className="text-heading font-bold">{ended ? "중단된 학습의 대화" : "설명하며 이해하기"}</h2>{pending && <span role="status" className="text-caption text-primary-strong">대화 분석 중…</span>}</div>
         <Conversation messages={session.messages} assessments={session.assessments} showFeedback={false} />
+        {!ended && unassessedAnswer && <div role="status" className="rounded-control border border-warning bg-warning-soft p-4">
+          <p className="text-body text-warning">마지막 답변의 평가가 완료되지 않았어요. 현재 질문을 유지하고 있어요. 같은 답변으로 다시 평가할 수 있어요.</p>
+          <Button variant="soft" className="mt-3" disabled={pending || speechState !== "idle"} onClick={() => void evaluateAnswer(unassessedAnswer.text, unassessedAnswer.confidence ?? undefined, true)}>마지막 답변 다시 평가하기</Button>
+        </div>}
         {!ended ? <form onSubmit={send} className="min-w-0 rounded-card border border-primary-line bg-surface p-4 shadow-brand sm:p-5">
           {currentQuestion && hintSource && (
             <details key={currentQuestion.id} className="rounded-control border border-line bg-canvas p-3">

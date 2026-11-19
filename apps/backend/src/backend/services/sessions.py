@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -48,6 +49,8 @@ from backend.llm.provider import AnswerRelevanceError, LLMError, LLMTask
 from backend.llm.schemas import AssessmentOutput, FinalAssessmentOutput
 from backend.llm.validators import validate_assessment
 from backend.rag.store import search_chunks
+
+logger = logging.getLogger(__name__)
 
 _SESSION_VIEW_ADAPTER = TypeAdapter(dict[str, Any])
 
@@ -654,14 +657,25 @@ async def submit_answer(
     settings = await db.get(UserSettings, user_id)
     depth = settings.question_depth if settings else QuestionDepth.BASIC
     seq = await db.scalar(select(func.max(Message.seq)).where(Message.session_id == session_id))
-    answer_message = Message(
-        session_id=session_id,
-        seq=(seq or 0) + 1,
-        role=MessageRole.ANSWER,
-        text=text,
-        confidence=confidence,
+    pending_answer = await db.scalar(
+        select(Message).where(
+            Message.session_id == session_id,
+            Message.seq == seq,
+            Message.role == MessageRole.ANSWER,
+            ~select(Assessment.id).where(Assessment.answer_message_id == Message.id).exists(),
+        )
     )
-    db.add(answer_message)
+    if pending_answer is not None and pending_answer.text == text:
+        answer_message = pending_answer
+    else:
+        answer_message = Message(
+            session_id=session_id,
+            seq=(seq or 0) + 1,
+            role=MessageRole.ANSWER,
+            text=text,
+            confidence=confidence,
+        )
+        db.add(answer_message)
     lease = datetime.now(UTC)
     session.evaluating_since = lease
     await db.flush()
@@ -697,6 +711,7 @@ async def submit_answer(
     }
     query = f"{concept.title}\n{concept.description}\n{text}"
     await db.commit()
+    phase = "embedding"
     try:
         async with asyncio.timeout(lease_seconds):
             query_vector = (await provider.embed([query]))[0]
@@ -743,6 +758,7 @@ async def submit_answer(
                 ):
                     raise ValueError("an unfinished assessment requires a followup question")
 
+            phase = "assessment"
             output = await provider.generate_structured(
                 task=LLMTask.ASSESSMENT,
                 system=TURN_INSTRUCTIONS,
@@ -786,6 +802,7 @@ async def submit_answer(
                         if not result.feedback.supplement.strip():
                             raise ValueError("final explanation is required")
 
+                    phase = "final_feedback"
                     detailed = await provider.generate_structured(
                         task=LLMTask.ASSESSMENT,
                         system=ASSESSMENT_INSTRUCTIONS
@@ -918,6 +935,9 @@ followup_question은 null로 반환한다.""",
                 503, "answer_filter_unavailable", "answer relevance unavailable", retryable=True
             ) from None
         if isinstance(exc, LLMError | ValueError | TimeoutError | IndexError):
+            logger.warning(
+                "learning_evaluation_failed phase=%s error_type=%s", phase, type(exc).__name__
+            )
             raise AppError(502, "llm_failed", "assessment failed", retryable=True) from None
         raise
     return await session_view(db, user_id, session_id)

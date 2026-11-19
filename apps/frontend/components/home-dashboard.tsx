@@ -102,7 +102,7 @@ export function HomeDashboard() {
                 <h2 className="mt-1 truncate text-title-3 font-bold text-text">{recommendation.concept_title}</h2>
                 <p className="mt-1 text-caption text-subtle">{recommendation.project_name} · {recommendation.reason}</p>
                 <div className="mt-3 flex items-center gap-3">
-                  <StateBadge state={recommendation.state} />
+                  <StateBadge state={recommendation.state} score={recommendation.score} />
                   <span className="text-body font-bold text-muted">{recommendation.score === null ? "-" : `${recommendation.score}%`}</span>
                 </div>
                 <div role="progressbar" aria-label="추천 개념 이해도" aria-valuenow={recommendation.score ?? 0} aria-valuemin={0} aria-valuemax={100} className="mt-3 h-1.5 w-full max-w-80 overflow-hidden rounded-full bg-canvas">
