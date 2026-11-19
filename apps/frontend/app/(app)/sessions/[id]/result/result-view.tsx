@@ -36,6 +36,11 @@ export function ResultView() {
   const needsWork = final?.state === "partial" || final?.state === "misconception"
     || final?.elements.some((element) => element.verdict !== "met");
   const gaps = final?.elements.filter((element) => element.verdict !== "met") ?? [];
+  const feedbackGroups = [
+    { verdict: "missing", title: "빼먹은 내용", description: "답변에서 확인되지 않은 학습 항목이에요.", action: "설명에 추가할 내용", color: "text-warning" },
+    { verdict: "contradicted", title: "오개념", description: "자료와 다르게 이해한 내용을 바로잡아보세요.", action: "바로잡아 설명할 내용", color: "text-danger" },
+    { verdict: "partial", title: "설명이 부족한 부분", description: "언급했지만 조건이나 이유를 더 설명해야 하는 항목이에요.", action: "더 구체적으로 설명할 내용", color: "text-primary-strong" },
+  ];
   return <div className="space-y-7">
     {session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}
     <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">LEARNING COMPLETE</p><h1 className="mt-2 text-title-1 font-bold">학습 결과</h1><p className="mt-1 text-body-lg text-muted">{session.end_reason === "max_followups" ? "질문 횟수에 도달했어요. 남은 부분을 확인하고 다시 학습해보세요." : "이해도 100%에 도달해 학습을 마쳤어요."}</p></div><p className="text-caption text-subtle">{new Date(session.started_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · {duration}분 학습</p></header>
@@ -47,17 +52,28 @@ export function ResultView() {
     </section>
     {needsWork ? <section aria-label="보완할 내용" className="space-y-4">
       <h2 className="text-heading font-bold">다음 설명에서 보완할 내용</h2>
-      {gaps.map((element) => <article key={element.element_id} className="rounded-card border border-line bg-surface p-6">
-        <p className="text-caption font-bold text-warning">{element.verdict === "contradicted" ? "잘못 이해한 부분" : element.verdict === "missing" ? "설명하지 못한 부분" : "설명이 부족한 부분"}</p>
-        <h3 className="mt-2 text-subheading font-bold">{element.text}</h3>
-        {element.learner_quote && <blockquote className="mt-3 border-l-2 border-primary-line pl-3 text-body text-muted">내 설명 · “{element.learner_quote}”</blockquote>}
-        <p className="mt-3 whitespace-pre-wrap text-body text-muted">{element.note?.trim() || "이 항목의 조건과 적용 과정을 자료와 연결해 설명하는 내용이 필요해요."}</p>
-        {element.evidence.map((source) => <div key={source.id} className="mt-4 rounded-control bg-canvas p-4">
-          <p className="text-caption font-bold">{source.material_title} · {source.page_start}{source.page_end !== source.page_start ? `–${source.page_end}` : ""}쪽/슬라이드</p>
-          {source.text && <blockquote className="mt-2 whitespace-pre-wrap text-body text-muted">{source.text}</blockquote>}
-        </div>)}
-        <p className="mt-4 text-body font-semibold text-primary-strong">다시 설명해보기 · {element.text}의 조건과 이유를 연결해 자기 말로 설명해보세요.</p>
-      </article>)}
+      {feedbackGroups.map((group) => {
+        const elements = gaps.filter((element) => element.verdict === group.verdict);
+        if (elements.length === 0) return null;
+        return <section key={group.verdict} aria-label={group.title} className="space-y-3">
+          <div><h3 className={`text-subheading font-bold ${group.color}`}>{group.title} · {elements.length}개</h3><p className="mt-1 text-body text-muted">{group.description}</p></div>
+          {elements.map((element) => <article key={element.element_id} className="rounded-card border border-line bg-surface p-6">
+            <h4 className="text-subheading font-bold">{element.text}</h4>
+            <p className="mt-4 text-caption font-bold text-subtle">내 답변</p>
+            {element.learner_quote
+              ? <blockquote className="mt-2 border-l-2 border-primary-line pl-3 text-body text-muted">“{element.learner_quote}”</blockquote>
+              : <p className="mt-2 text-body text-muted">이 항목을 설명한 문장이 답변에서 확인되지 않았어요.</p>}
+            <p className="mt-4 text-caption font-bold text-subtle">보완이 필요한 이유</p>
+            <p className="mt-2 whitespace-pre-wrap text-body text-muted">{element.note?.trim() || (element.verdict === "missing" ? "이 항목에 대한 설명을 추가해야 이해 여부를 확인할 수 있어요." : element.verdict === "contradicted" ? "자료의 설명과 충돌하는 부분이 있어요. 아래 근거와 내 답변을 비교해보세요." : "설명한 내용만으로는 이 항목의 조건이나 적용 과정을 충분히 확인하기 어려워요.")}</p>
+            <p className="mt-4 text-caption font-bold text-subtle">{group.action}</p>
+            <p className="mt-2 text-body font-semibold text-primary-strong">{element.text}</p>
+            {element.evidence.map((source) => <div key={source.id} className="mt-4 rounded-control bg-canvas p-4">
+              <p className="text-caption font-bold">{source.material_title} · {source.page_start}{source.page_end !== source.page_start ? `–${source.page_end}` : ""}쪽/슬라이드</p>
+              {source.text && <blockquote className="mt-2 whitespace-pre-wrap text-body text-muted">{source.text}</blockquote>}
+            </div>)}
+          </article>)}
+        </section>;
+      })}
       {gaps.length === 0 && <FeedbackList items={[...(feedback?.missing ?? []), ...(feedback?.incorrect ?? []), ...(feedback?.missing_hint ?? [])]} />}
     </section> : <p className="text-body text-subtle">추가로 보완할 부분이 없어요.</p>}
     {needsWork && !!feedback?.supplement?.trim() && <section className="rounded-card border border-line bg-surface p-6"><h2 className="text-heading font-bold">상세 풀이</h2><p className="mt-4 whitespace-pre-wrap text-body-lg text-muted">{feedback.supplement}</p></section>}
