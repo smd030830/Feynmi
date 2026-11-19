@@ -243,9 +243,16 @@ async def test_record_delete_is_owner_only_and_recomputes_concept_progress(setup
     earlier = await start(setup)
     assert (await answer(setup, earlier)).status_code == 200
     assert (await setup.client.delete(f"{URL}/records/{earlier}")).status_code == 404
-    assert (await setup.client.post(f"{URL}/sessions/{earlier}/abort")).status_code == 200
+    for _ in range(4):
+        response = await answer(setup, earlier)
+        assert response.status_code == 200, response.text
+    completed = await setup.client.get(f"{URL}/sessions/{earlier}/result")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["end_reason"] == "max_followups"
 
     latest = await start(setup)
+    assert latest != earlier
     setup.provider.verdict = Verdict.MET
     assert (await answer(setup, latest)).json()["status"] == "completed"
     endpoint = f"{URL}/records/{latest}"
@@ -421,6 +428,10 @@ async def test_abort_and_supersede_preserve_scores_hide_full_feedback(setup: Set
     assert (await setup.client.post(f"{URL}/sessions/{sid}/abort")).status_code == 200
     assert (await setup.client.get(f"{URL}/sessions/{sid}/result")).status_code == 409
     second = await start(setup)
+    assert second == sid
+    resumed = (await setup.client.get(f"{URL}/sessions/{second}")).json()
+    assert resumed["messages"] == aborted.json()["messages"]
+    assert resumed["assessments"] == aborted.json()["assessments"]
     await start(setup, setup.next_concept_id)
     view = (await setup.client.get(f"{URL}/sessions/{second}")).json()
     assert view["end_reason"] == "superseded"

@@ -276,7 +276,20 @@ async def start_session(
         return await session_view(db, user_id, existing.id)
     if existing is not None and _live_lock(existing, lease_seconds):
         raise AppError(409, "evaluation_in_progress")
+    previous = await db.scalar(
+        select(Session)
+        .where(Session.user_id == user_id, Session.concept_id == concept_id)
+        .order_by(Session.started_at.desc(), Session.id.desc())
+        .limit(1)
+    )
     await cleanup_sessions(db, user_id, EndReason.SUPERSEDED, lease_seconds)
+    if previous is not None and previous.status == SessionStatus.ABORTED:
+        previous.status = SessionStatus.IN_PROGRESS
+        previous.end_reason = None
+        previous.ended_at = None
+        previous.evaluating_since = None
+        await db.commit()
+        return await session_view(db, user_id, previous.id)
     session = Session(user_id=user_id, concept_id=concept_id)
     db.add(session)
     await db.flush()

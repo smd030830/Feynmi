@@ -7,7 +7,7 @@ import { Button, buttonStyles } from "@/components/button";
 import { confidenceLabels, Conversation } from "@/components/learning-feedback";
 import { useAccount } from "@/components/account-provider";
 import { Modal } from "@/components/modal";
-import { abortSession, apiErrorMessage, ApiError, getSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
+import { apiErrorMessage, ApiError, getSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
 import { useSpeechDictation } from "@/lib/use-speech-dictation";
 import { useStartLearning } from "@/lib/use-start-learning";
 
@@ -98,13 +98,11 @@ export function SessionView() {
       try { setLoaded({ id, session: await getSession(id) }); } catch { /* 기존 대화와 입력을 유지한다. */ }
     } finally { live.current.pending = false; setPending(false); }
   }
-  async function finish() {
-    if (live.current.pending) return;
+  function finish() {
+    if (!session || live.current.pending) return;
     abortSpeech();
-    live.current.pending = true;
-    setPending(true); setError("");
-    try { const updated = await abortSession(id); live.current.session = updated; live.current.pending = false; setPending(false); setLoaded({ id, session: updated }); setConfirmExit(false); router.push(`/projects/${updated.project_id}`); }
-    catch (err) { setError(apiErrorMessage(err)); } finally { live.current.pending = false; setPending(false); }
+    setConfirmExit(false);
+    router.push(`/projects/${session.project_id}`);
   }
   async function restart() {
     if (!session || session.concept_available === false || live.current.pending) return;
@@ -120,7 +118,7 @@ export function SessionView() {
   const ended = session.status !== "in_progress";
 
   return <div className="space-y-7">
-    <div className="flex items-center justify-between">{session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>학습 종료</Button>}</div>
+    <div className="flex items-center justify-between">{session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>나중에 이어하기</Button>}</div>
     <header className="flex items-end justify-between gap-4"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="shrink-0 text-caption text-subtle">{ended ? "중단된 학습" : "최대 5문항 · 이해도 100% 달성 시 조기 종료"}</span></header>
     {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되어 이 개념을 다시 학습할 수 없어요. 당시 설명과 피드백은 아래에서 볼 수 있어요.</p>}
     {!ended && session.followups_used > 0 && <p aria-live="polite" className="text-caption font-bold text-primary-strong">추가 질문 {session.followups_used}</p>}
@@ -203,11 +201,11 @@ export function SessionView() {
           <p id="speech-input-help" className="sr-only">음성은 브라우저의 음성 인식 서비스에서 처리될 수 있어요.</p>
           <p role="status" className={speechMessage || speechState !== "idle" ? "mt-2 text-caption text-muted" : "sr-only"}>
             {speechMessage || (speechState === "listening" ? "듣고 있어요. 설명을 마치면 음성 입력을 중지해주세요." : speechState === "stopping" ? "마지막 음성을 텍스트로 바꾸고 있어요." : "")}
-          </p>        </form> : session.concept_available !== false && <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이 개념 다시 학습하기</Button></div>}
+          </p>        </form> : session.concept_available !== false && <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이어서 학습하기</Button></div>}
       </section>
 
     </div>
-    {confirmExit && <Modal title="학습을 종료할까요?" onClose={() => !pending && setConfirmExit(false)} dismissible={false}><p className="text-body-lg text-muted">지금 종료하면 이 학습은 이어할 수 없어요. 마지막 판정은 저장됩니다.</p><div className="mt-6 flex justify-end gap-2"><Button variant="ghost" disabled={pending} onClick={() => setConfirmExit(false)}>계속 학습</Button><Button variant="danger" disabled={pending} onClick={finish}>학습 종료</Button></div></Modal>}
+    {confirmExit && <Modal title="학습을 잠시 멈출까요?" onClose={() => !pending && setConfirmExit(false)} dismissible={false}><p className="text-body-lg text-muted">지금까지의 질문과 답변은 저장됩니다. 같은 개념을 선택하면 이어서 학습할 수 있어요.</p><div className="mt-6 flex justify-end gap-2"><Button variant="ghost" disabled={pending} onClick={() => setConfirmExit(false)}>계속 학습</Button><Button variant="danger" disabled={pending} onClick={finish}>나중에 이어하기</Button></div></Modal>}
     {ended && <Link href={session.project_available === false ? "/records" : `/projects/${session.project_id}`} className={buttonStyles("ghost")}>{session.project_available === false ? "학습기록으로 돌아가기" : "프로젝트로 돌아가기"}</Link>}
   </div>;
 }
