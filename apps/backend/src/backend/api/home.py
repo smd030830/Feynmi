@@ -27,7 +27,7 @@ class HomeResponse(BaseModel):
 async def get_home(
     current: Annotated[CurrentUser, Depends(require_profile)], db: DbSession
 ) -> HomeResponse:
-    # 조회 전에 누락된 이탈을 처리하고, 유효한 평가 잠금은 기존 규칙으로 보호한다.
+    # 홈을 방문해도 학습을 이어갈 수 있도록 진행 세션을 보존한다.
     await sessions.cleanup_on_home(db, current.user.id)
     summaries = await projects.list_projects(db, current.user.id)
     weak = await sessions.weak_concepts(db, current.user.id)

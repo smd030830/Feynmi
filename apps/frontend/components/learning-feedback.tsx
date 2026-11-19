@@ -37,7 +37,7 @@ function ImprovementFeedback({ assessment }: { assessment: Assessment }) {
     <FeedbackList items={items.length ? items : [fallback]} />
   </>;
 }
-export function Conversation({ messages, assessments }: { messages: LearningMessage[]; assessments: Assessment[] }) {
+export function Conversation({ messages, assessments, showFeedback = true }: { messages: LearningMessage[]; assessments: Assessment[]; showFeedback?: boolean }) {
   return <div className="space-y-5">{messages.map((message, index) => {
     // 답변 평가 실패 시 평가 없는 답변도 보존된다. 평가 시각 직전의 답변에만 노트를 붙인다.
     const assessment = message.role === "answer" ? assessments.find((item) => {
@@ -75,7 +75,7 @@ export function Conversation({ messages, assessments }: { messages: LearningMess
           </div>
         </>
       )}
-      {assessment && <div className="mt-3 space-y-3 rounded-control border border-primary-line bg-surface p-4">
+      {showFeedback && assessment && <div className="mt-3 space-y-3 rounded-control border border-primary-line bg-surface p-4">
         <div className="flex items-center gap-2"><StateBadge state={assessment.state} /><span className="text-body font-bold text-primary-strong">{assessment.score}%</span></div>
         <ImprovementFeedback assessment={assessment} />
       </div>}

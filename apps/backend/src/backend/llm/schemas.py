@@ -71,3 +71,7 @@ class AssessmentOutput(OutputModel):
     feedback: AssessmentFeedback
     summary_points: list[Text]
     followup_question: Text | None
+
+
+class FinalAssessmentOutput(AssessmentOutput):
+    """종료 시 상세 피드백. 관련성 검사를 다시 호출하지 않는다."""

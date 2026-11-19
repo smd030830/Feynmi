@@ -1,51 +1,76 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, usePathname, useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, buttonStyles } from "@/components/button";
-import { confidenceLabels, Conversation, StateBadge } from "@/components/learning-feedback";
+import { confidenceLabels, Conversation } from "@/components/learning-feedback";
+import { useAccount } from "@/components/account-provider";
 import { Modal } from "@/components/modal";
-import { abortSession, abortSessionOnExit, apiErrorMessage, ApiError, getSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
-import { getFirebaseAuth } from "@/lib/firebase";
+import { abortSession, apiErrorMessage, ApiError, getSession, submitAnswer, type AnswerConfidence, type LearningSession } from "@/lib/api";
 import { useSpeechDictation } from "@/lib/use-speech-dictation";
 import { useStartLearning } from "@/lib/use-start-learning";
 
-const verdictLabels = { met: "충족", partial: "부분", missing: "누락", contradicted: "모순" };
 const confidenceOptions = ["high", "uncertain", "low"] as const;
 
 export function SessionView() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const pathname = usePathname();
+  const { user } = useAccount();
+  const draftKey = user?.uid ? `feynmi:answer-draft:${user.uid}:${id}` : "";
   const [loaded, setLoaded] = useState<{ id: string; session?: LearningSession; error?: string }>();
   const [attempt, setAttempt] = useState(0);
-  const [answer, setAnswer] = useState("");
+  const [draft, setDraft] = useState<{ key: string; text: string }>({ key: "", text: "" });
+  const draftRef = useRef(draft);
+  const answer = draft.key === draftKey ? draft.text : "";
   const [confidenceDraft, setConfidenceDraft] = useState<{ id: string; value: AnswerConfidence }>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [answerError, setAnswerError] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
   const { begin, starting, startError } = useStartLearning();
+  function setAnswer(value: string | ((previous: string) => string)) {
+    const current = draftRef.current.key === draftKey ? draftRef.current.text : "";
+    const text = typeof value === "function" ? value(current) : value;
+    const next = { key: draftKey, text };
+    draftRef.current = next;
+    if (draftKey) {
+      try {
+        if (text) localStorage.setItem(draftKey, text);
+        else localStorage.removeItem(draftKey);
+      } catch { /* 저장소를 쓸 수 없어도 입력과 제출은 가능하다. */ }
+    }
+    setDraft(next);
+  }
   const { state: speechState, message: speechMessage, start: startSpeech, stop: stopSpeech, abort: abortSpeech, isActive: speechIsActive } =
-    useSpeechDictation(id, (text) => setAnswer((draft) => draft && !/\s$/.test(draft) ? `${draft} ${text}` : draft + text));
-  const live = useRef<{ session?: LearningSession; pending: boolean; token: string }>({ pending: false, token: "" });
+    useSpeechDictation(id, (text) => setAnswer((value) => value && !/\s$/.test(value) ? `${value} ${text}` : value + text));
+  const live = useRef<{ session?: LearningSession; pending: boolean }>({ pending: false });
   const session = loaded?.id === id ? loaded.session : undefined;
 
   useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active || !draftKey || draftRef.current.key === draftKey) return;
+      let text = "";
+      try { text = localStorage.getItem(draftKey) ?? ""; }
+      catch { /* 저장소가 차단되면 빈 초안으로 시작한다. */ }
+      const restored = { key: draftKey, text };
+      draftRef.current = restored;
+      setDraft(restored);
+    });
+    return () => { active = false; };
+  }, [draftKey]);
+
+  useEffect(() => {
     let cancelled = false;
-    const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
-    // navigation 항목은 이후 SPA 이동에도 유지되므로 새로고침한 문서의 세션에만 적용한다.
-    const reload = navigation?.type === "reload" && new URL(navigation.name).pathname === `/sessions/${encodeURIComponent(id)}`;
-    (async () => {
-      const value = reload ? await abortSession(id) : await getSession(id);
+    getSession(id).then((value) => {
       if (!cancelled) {
         live.current.session = value;
         live.current.pending = false;
         setPending(false);
         setLoaded({ id, session: value });
       }
-    })().catch((err) => !cancelled && setLoaded({ id, error: apiErrorMessage(err) }));
+    }).catch((err) => !cancelled && setLoaded({ id, error: apiErrorMessage(err) }));
     return () => { cancelled = true; };
   }, [id, attempt]);
 
@@ -53,51 +78,6 @@ export function SessionView() {
     live.current.session = session;
     if (session?.status === "completed") router.replace(`/sessions/${id}/result`);
   }, [session, id, router]);
-
-  useEffect(() => {
-    let active = true;
-    const refreshToken = () => void getFirebaseAuth().currentUser?.getIdToken().then((token) => { if (active) live.current.token = token; }).catch(() => {});
-    refreshToken();
-    const timer = window.setInterval(refreshToken, 5 * 60 * 1000);
-    const exit = () => {
-      if (live.current.session?.id === id && live.current.session.status === "in_progress" && live.current.token) {
-        void abortSessionOnExit(id, live.current.token).catch(() => {});
-      }
-    };
-    const navigate = (event: MouseEvent) => {
-      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const link = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
-      if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
-      const url = new URL(link.href);
-      if (url.origin !== location.origin || url.pathname === pathname || live.current.session?.status !== "in_progress") return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (live.current.pending) { setError("설명을 분석 중이에요. 분석이 끝나면 이동할 수 있어요."); return; }
-      abortSpeech();
-      live.current.pending = true;
-      setPending(true);
-      void abortSession(id).then((updated) => {
-        live.current.session = updated;
-        live.current.pending = false;
-        setLoaded({ id, session: updated });
-        setPending(false);
-        router.push(url.pathname + url.search + url.hash);
-      }).catch((err) => { live.current.pending = false; setError(apiErrorMessage(err)); setPending(false); });
-    };
-    window.addEventListener("pagehide", exit);
-    window.addEventListener("popstate", exit);
-    document.addEventListener("click", navigate, true);
-    return () => {
-      // 화면 이동으로 숨겨지는 경우에도 중단한다. StrictMode의 첫 마운트 정리는
-      // 같은 URL에서 실행되므로 실제 학습을 중단하지 않는다.
-      if (location.pathname !== pathname) exit();
-      active = false;
-      clearInterval(timer);
-      window.removeEventListener("pagehide", exit);
-      window.removeEventListener("popstate", exit);
-      document.removeEventListener("click", navigate, true);
-    };
-  }, [abortSpeech, id, pathname, router]);
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
@@ -138,7 +118,6 @@ export function SessionView() {
   const currentQuestion = session.messages.findLast((message) => message.role === "question");
   const hintSource = session.hint_source;
   const ended = session.status !== "in_progress";
-  const evidence = [...new Map(latest?.elements.flatMap((e) => e.evidence).map((e) => [e.id, e]) ?? []).values()];
 
   return <div className="space-y-7">
     <div className="flex items-center justify-between">{session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>학습 종료</Button>}</div>
@@ -146,9 +125,9 @@ export function SessionView() {
     {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되어 이 개념을 다시 학습할 수 없어요. 당시 설명과 피드백은 아래에서 볼 수 있어요.</p>}
     {!ended && session.followups_used > 0 && <p aria-live="polite" className="text-caption font-bold text-primary-strong">추가 질문 {session.followups_used}</p>}
     {(error || startError) && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error || startError}</p>}
-    <div className={ended ? "" : "grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-6"}>
+    <div className="min-w-0">
       <section className="min-w-0 space-y-6"><div className="flex justify-between"><h2 className="text-heading font-bold">{ended ? "중단된 학습의 대화" : "설명하며 이해하기"}</h2>{pending && <span role="status" className="text-caption text-primary-strong">대화 분석 중…</span>}</div>
-        <Conversation messages={session.messages} assessments={session.assessments} />
+        <Conversation messages={session.messages} assessments={session.assessments} showFeedback={false} />
         {!ended ? <form onSubmit={send} className="min-w-0 rounded-card border border-primary-line bg-surface p-4 shadow-brand sm:p-5">
           {currentQuestion && hintSource && (
             <details key={currentQuestion.id} className="rounded-control border border-line bg-canvas p-3">
@@ -226,12 +205,7 @@ export function SessionView() {
             {speechMessage || (speechState === "listening" ? "듣고 있어요. 설명을 마치면 음성 입력을 중지해주세요." : speechState === "stopping" ? "마지막 음성을 텍스트로 바꾸고 있어요." : "")}
           </p>        </form> : session.concept_available !== false && <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이 개념 다시 학습하기</Button></div>}
       </section>
-      {!ended && <aside className="min-w-0 space-y-5 rounded-card border border-line bg-surface p-4 sm:p-5 lg:sticky lg:top-24"><div><p className="text-eyebrow font-bold text-primary-strong">실시간 분석</p><h2 className="mt-2 text-subheading font-bold">현재 이해 상태</h2><div className="mt-3"><StateBadge state={latest?.state ?? "not_studied"} /></div></div>
-        <ul className="space-y-4">{latest?.elements.map((element) => <li key={element.element_id} className="text-caption"><p className="font-semibold text-muted">{element.text}</p><p className="mt-1 text-subtle">{element.importance === "core" ? "핵심" : "보조"} · {pending ? "이해 확인 중" : verdictLabels[element.verdict]}</p>{element.learner_quote && <blockquote className="mt-2 border-l-2 border-primary-line pl-2 text-subtle">“{element.learner_quote}”</blockquote>}</li>) ?? <li className="text-caption text-subtle">첫 설명을 보내면 이해 상태를 확인할 수 있어요.</li>}</ul>
-        <div><p className="text-caption text-subtle">현재 이해도</p><p className="text-title-2 font-bold text-primary-strong">{latest ? `${latest.score}%` : "-"}</p><progress aria-label="현재 이해도" value={latest?.score ?? 0} max={100} className="h-2 w-full accent-primary" /></div>
-        {!!latest?.feedback.unverified_statements?.length && <div className="rounded-control bg-primary-soft p-3 text-caption"><p className="font-bold text-primary-strong">자료에서 확인되지 않음</p>{latest.feedback.unverified_statements.map((s, i) => <p key={i} className="mt-2 text-muted">“{s.learner_quote}”</p>)}</div>}
-        <div><h3 className="text-caption font-bold text-muted">연결된 학습자료</h3><ul className="mt-2 space-y-2 text-micro text-subtle">{evidence.map((e) => <li key={e.id}>{e.material_title} · {e.page_start}{e.page_end !== e.page_start ? `–${e.page_end}` : ""}쪽/슬라이드</li>)}</ul></div>
-      </aside>}
+
     </div>
     {confirmExit && <Modal title="학습을 종료할까요?" onClose={() => !pending && setConfirmExit(false)} dismissible={false}><p className="text-body-lg text-muted">지금 종료하면 이 학습은 이어할 수 없어요. 마지막 판정은 저장됩니다.</p><div className="mt-6 flex justify-end gap-2"><Button variant="ghost" disabled={pending} onClick={() => setConfirmExit(false)}>계속 학습</Button><Button variant="danger" disabled={pending} onClick={finish}>학습 종료</Button></div></Modal>}
     {ended && <Link href={session.project_available === false ? "/records" : `/projects/${session.project_id}`} className={buttonStyles("ghost")}>{session.project_available === false ? "학습기록으로 돌아가기" : "프로젝트로 돌아가기"}</Link>}

@@ -389,7 +389,7 @@ async def test_session_completes_on_fifth_question(setup: Setup) -> None:
         "프로세스는 실행 중인 프로그램이다."
     )
     assert body["recommendation"]["concept_id"] == str(setup.next_concept_id)
-    assert body["assessments"][0]["feedback"]["supplement"] == "result-only supplement"
+    assert body["assessments"][0]["feedback"]["supplement"] == ""
     assert body["assessments"][-1]["feedback"]["supplement"] == "result-only supplement"
     assert (await answer(setup, sid)).status_code == 409
     concept = await setup.db.get(Concept, setup.concept_id)
@@ -581,29 +581,26 @@ async def test_weekly_summary_goal_and_project_scores_follow_assessment(setup: S
     assert listing["items"][0]["score"] == 50
 
 
-async def test_home_cleanup_aborts_only_own_idle_or_expired_sessions(setup: Setup) -> None:
+async def test_home_cleanup_preserves_resumable_sessions(setup: Setup) -> None:
     sid = await start(setup)
-    # Another user's home must not alter this user's session.
-    assert (
-        await setup.client.post(f"{URL}/sessions/cleanup", headers=auth("bob"))
-    ).status_code == 204
-    assert (await setup.client.get(f"{URL}/sessions/{sid}")).json()["status"] == "in_progress"
-    response = await setup.client.post(f"{URL}/sessions/cleanup")
-    assert response.status_code == 204
-    view = (await setup.client.get(f"{URL}/sessions/{sid}")).json()
-    assert view["status"] == "aborted" and view["end_reason"] == "stale"
-    assert not view["assessments"]
-    second = await start(setup)
-    row = await setup.db.get(Session, UUID(second))
+    assert (await answer(setup, sid, "이어갈 때 남아 있어야 하는 설명")).status_code == 200
+    before = (await setup.client.get(f"{URL}/sessions/{sid}")).json()
+    for headers in (auth("bob"), auth()):
+        assert (
+            await setup.client.post(f"{URL}/sessions/cleanup", headers=headers)
+        ).status_code == 204
+    resumed = await start(setup)
+    assert resumed == sid
+    after = (await setup.client.get(f"{URL}/sessions/{sid}")).json()
+    assert after["status"] == "in_progress"
+    assert after["messages"] == before["messages"]
+    assert after["assessments"] == before["assessments"]
+    row = await setup.db.get(Session, UUID(sid))
     assert row is not None
-    row.evaluating_since = datetime.now(UTC)
-    await setup.db.commit()
-    assert (await setup.client.post(f"{URL}/sessions/cleanup")).status_code == 204
-    assert (await setup.client.get(f"{URL}/sessions/{second}")).json()["status"] == "in_progress"
     row.evaluating_since = datetime.now(UTC) - timedelta(days=1)
     await setup.db.commit()
     assert (await setup.client.post(f"{URL}/sessions/cleanup")).status_code == 204
-    assert (await setup.client.get(f"{URL}/sessions/{second}")).json()["end_reason"] == "stale"
+    assert (await setup.client.get(f"{URL}/sessions/{sid}")).json()["status"] == "in_progress"
 
 
 async def test_expired_lease_reclaimed_old_response_cannot_save(setup: Setup) -> None:
