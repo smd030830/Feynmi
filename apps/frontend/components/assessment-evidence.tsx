@@ -40,10 +40,6 @@ export function AssessmentEvidence({ assessments }: { assessments: Assessment[] 
                           {element.evidence.map((source) => (
                             <li key={source.id} className="break-words text-caption text-muted">
                               <p className="font-semibold">{source.material_title} · {source.page_start}{source.page_end !== source.page_start ? `–${source.page_end}` : ""}쪽/슬라이드</p>
-                              {source.basis_only && <p className="mt-1 text-subtle">채점 기준의 출처</p>}
-                              {source.text
-                                ? <blockquote className="mt-1 whitespace-pre-wrap border-l-2 border-primary-line pl-2">{source.text}</blockquote>
-                                : <p className="mt-1 text-subtle">이 기록에는 자료 위치만 저장되어 있어요.</p>}
                             </li>
                           ))}
                         </ul>

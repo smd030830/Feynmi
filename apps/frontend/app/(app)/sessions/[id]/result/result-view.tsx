@@ -67,10 +67,14 @@ export function ResultView() {
             <p className="mt-2 whitespace-pre-wrap text-body text-muted">{element.note?.trim() || (element.verdict === "missing" ? "이 항목에 대한 설명을 추가해야 이해 여부를 확인할 수 있어요." : element.verdict === "contradicted" ? "자료의 설명과 충돌하는 부분이 있어요. 아래 근거와 내 답변을 비교해보세요." : "설명한 내용만으로는 이 항목의 조건이나 적용 과정을 충분히 확인하기 어려워요.")}</p>
             <p className="mt-4 text-caption font-bold text-subtle">{group.action}</p>
             <p className="mt-2 text-body font-semibold text-primary-strong">{element.text}</p>
-            {element.evidence.map((source) => <div key={source.id} className="mt-4 rounded-control bg-canvas p-4">
-              <p className="text-caption font-bold">{source.material_title} · {source.page_start}{source.page_end !== source.page_start ? `–${source.page_end}` : ""}쪽/슬라이드</p>
-              {source.text && <blockquote className="mt-2 whitespace-pre-wrap text-body text-muted">{source.text}</blockquote>}
-            </div>)}
+            {element.evidence.length > 0 && <div className="mt-4">
+              <p className="text-caption font-bold text-subtle">자료 근거</p>
+              <ul className="mt-2 space-y-1">
+                {element.evidence.map((source) => <li key={source.id} className="break-words text-caption text-muted">
+                  {source.material_title} · {source.page_start}{source.page_end !== source.page_start ? `–${source.page_end}` : ""}쪽/슬라이드
+                </li>)}
+              </ul>
+            </div>}
           </article>)}
         </section>;
       })}
