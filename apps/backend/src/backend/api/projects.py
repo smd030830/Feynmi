@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, StringConstraints
 
 from backend.api.deps import CurrentUser, DbSession, require_profile
@@ -13,6 +13,15 @@ from backend.services.projects import ProjectSummary
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 ProfileUser = Annotated[CurrentUser, Depends(require_profile)]
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: uuid.UUID, request: Request, current: ProfileUser, db: DbSession
+) -> Response:
+    await projects.delete_project(db, request.app.state.storage, current.user.id, project_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 # PRD FR-1.0
 NAME_MAX_LENGTH = 40

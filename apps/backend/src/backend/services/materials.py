@@ -99,6 +99,25 @@ async def delete_material(
     await db.commit()
 
 
+async def download_material(
+    db: AsyncSession, storage: MaterialStorage, user_id: uuid.UUID, material_id: uuid.UUID
+) -> tuple[Material, bytes]:
+    material = await owned_material(db, user_id, material_id)
+    if material.status == MaterialStatus.PENDING_UPLOAD:
+        raise AppError(409, "material_busy", "wait for the upload to finish")
+    try:
+        content = await asyncio.to_thread(storage.load, material.gcs_path)
+    except FileNotFoundError:
+        raise AppError(404, "original_missing", "original file not found") from None
+    except AppError:
+        raise
+    except Exception:
+        raise AppError(
+            503, "storage_unavailable", "material download unavailable", retryable=True
+        ) from None
+    return material, content
+
+
 def _file_type(filename: str) -> tuple[FileType, str]:
     ext = PurePath(filename).suffix.lower().lstrip(".")
     if ext not in EXTENSIONS:
@@ -120,6 +139,7 @@ async def request_upload(
     size: int,
 ) -> tuple[Material, UploadTarget]:
     """사전 검증(형식·용량·동의) 후 `pending_upload` 자료와 업로드 주소를 만든다 (7.1 ①)."""
+    await lock_learning_user(db, user.id)
     project = await _owned_project(db, user.id, project_id)
     if user.ai_consent_at is None:  # FR-1.8: 첫 업로드 전 외부 AI 전송 동의
         raise AppError(403, "consent_required", "AI processing consent is required")

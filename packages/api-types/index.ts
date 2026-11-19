@@ -24,7 +24,7 @@ export type Schemas = {
   "ProjectListResponse": { "items": Array<Schemas["ProjectResponse"]>; "next_color": Schemas["ProjectColor"]; };
   "ProjectResponse": { "color": Schemas["ProjectColor"]; "created_at": string; "description": (string) | (null); "id": string; "last_concept_title"?: (string) | (null); "last_studied_at"?: (string) | (null); "material_count": number; "name": string; "score": (number) | (null); "state_counts": Schemas["StateCounts"]; };
   "QuestionDepth": ("basic") | ("deep");
-  "RecordItem": { "concept_id": string; "concept_title": string; "ended_at": (string) | (null); "id": string; "project_id": string; "project_name": string; "score": (number) | (null); "started_at": string; "status": Schemas["SessionStatus"]; };
+  "RecordItem": { "concept_id": string; "concept_title": string; "ended_at": (string) | (null); "id": string; "project_available"?: boolean; "project_id": string; "project_name": string; "score": (number) | (null); "started_at": string; "status": Schemas["SessionStatus"]; };
   "RecordPage": { "items": Array<Schemas["RecordItem"]>; "next_cursor": (string) | (null); "total": number; };
   "SessionStatus": ("in_progress") | ("completed") | ("aborted");
   "SettingsResponse": { "notifications_enabled": boolean; "question_depth": Schemas["QuestionDepth"]; "weekly_goal_days": number; };
@@ -46,6 +46,9 @@ export type Paths = {
   };
   "/api/v1/materials/{material_id}": {
     "delete": { parameters: { path: { "material_id": string; }; }; requestBody?: never; responses: { "204": void; "422": Schemas["HTTPValidationError"]; }; };
+  };
+  "/api/v1/materials/{material_id}/download": {
+    "get": { parameters: { path: { "material_id": string; }; }; requestBody?: never; responses: { "200": void; "422": Schemas["HTTPValidationError"]; }; };
   };
   "/api/v1/materials/{material_id}/retry": {
     "post": { parameters: { path: { "material_id": string; }; }; requestBody?: never; responses: { "202": Schemas["MaterialResponse"]; "422": Schemas["HTTPValidationError"]; }; };
@@ -91,6 +94,7 @@ export type Paths = {
     "post": { parameters?: never; requestBody: Schemas["ProjectCreate"]; responses: { "201": Schemas["ProjectResponse"]; "422": Schemas["HTTPValidationError"]; }; };
   };
   "/api/v1/projects/{project_id}": {
+    "delete": { parameters: { path: { "project_id": string; }; }; requestBody?: never; responses: { "204": void; "422": Schemas["HTTPValidationError"]; }; };
     "get": { parameters: { path: { "project_id": string; }; }; requestBody?: never; responses: { "200": Schemas["ProjectResponse"]; "422": Schemas["HTTPValidationError"]; }; };
   };
   "/api/v1/projects/{project_id}/concepts": {

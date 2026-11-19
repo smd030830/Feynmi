@@ -151,7 +151,7 @@ export function RecordsPanel({
                           <span className="shrink-0 text-caption text-subtle">{completed ? "완료" : "중단"}</span>
                         </div>
                         <p className="mt-1 truncate text-caption text-subtle">
-                          {record.project_name} · <time dateTime={record.started_at}>{dateFormat.format(new Date(record.started_at))}</time> · {minutes}분 학습
+                          {record.project_name}{record.project_available === false ? " (삭제된 프로젝트)" : ""} · <time dateTime={record.started_at}>{dateFormat.format(new Date(record.started_at))}</time> · {minutes}분 학습
                         </p>
                       </div>
                       <div className="shrink-0 text-right">

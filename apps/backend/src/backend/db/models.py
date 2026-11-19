@@ -267,9 +267,8 @@ class Session(Base):
     concept_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("concepts.id", ondelete="SET NULL")
     )
-    archived_project_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    # Historical identifier remains available after the original project is deleted.
+    archived_project_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     archived_view: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     status: Mapped[str] = mapped_column(Text, server_default=SessionStatus.IN_PROGRESS.value)
     end_reason: Mapped[str | None] = mapped_column(Text)

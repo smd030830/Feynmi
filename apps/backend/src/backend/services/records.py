@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import AwareDatetime, BaseModel, ValidationError
-from sqlalchemy import Select, Uuid, cast, func, select, tuple_
+from sqlalchemy import Select, Uuid, and_, cast, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Assessment, Concept, Material, Message, Project, Session
@@ -21,6 +21,7 @@ class RecordItem(BaseModel):
     concept_title: str
     project_id: uuid.UUID
     project_name: str
+    project_available: bool = True
     started_at: datetime
     ended_at: datetime | None
     score: int | None
@@ -62,12 +63,15 @@ def _record_scope(user_id: uuid.UUID) -> Select[uuid.UUID]:
         select(Session.id)
         .outerjoin(Concept, Concept.id == Session.concept_id)
         .outerjoin(Material, Material.id == Concept.material_id)
-        .join(
+        .outerjoin(
             Project, Project.id == func.coalesce(Material.project_id, Session.archived_project_id)
         )
         .where(
             Session.user_id == user_id,
-            Project.user_id == user_id,
+            or_(
+                Project.user_id == user_id,
+                and_(Project.id.is_(None), Session.archived_view.is_not(None)),
+            ),
             Session.status.in_([SessionStatus.COMPLETED, SessionStatus.ABORTED]),
             answered,
         )
@@ -111,8 +115,11 @@ async def list_records(
             func.coalesce(Concept.title, Session.archived_view["concept_title"].astext).label(
                 "concept_title"
             ),
-            Project.id.label("project_id"),
-            Project.name.label("project_name"),
+            func.coalesce(Project.id, Session.archived_project_id).label("project_id"),
+            func.coalesce(Project.name, Session.archived_view["project_name"].astext).label(
+                "project_name"
+            ),
+            Project.id.is_not(None).label("project_available"),
             Session.started_at,
             Session.ended_at,
             Session.status,

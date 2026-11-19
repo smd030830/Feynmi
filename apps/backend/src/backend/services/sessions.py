@@ -368,7 +368,12 @@ async def session_view(
     if result and session.status != SessionStatus.COMPLETED:
         raise AppError(409, "invalid_state", "only completed sessions have results")
     if session.archived_view is not None:
-        return session.archived_view
+        project_exists = await db.scalar(
+            select(Project.id).where(
+                Project.id == session.archived_project_id, Project.user_id == user_id
+            )
+        )
+        return {**session.archived_view, "project_available": project_exists is not None}
     return await _session_view(db, user_id, session)
 
 

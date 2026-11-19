@@ -3,6 +3,7 @@
 모든 조회는 `user_id`로 범위를 좁힌다. 다른 사용자의 프로젝트는 없는 것처럼 404로 처리한다 (5.2-7).
 """
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -12,13 +13,48 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Concept, Material, Message, Project, Session
-from backend.domain.enums import ConceptState, MessageRole, ProjectColor
+from backend.domain.enums import ConceptState, MaterialStatus, MessageRole, ProjectColor
 from backend.domain.projects import next_project_color
 from backend.domain.score_rules import average_score
 from backend.errors import AppError
 from backend.services.account import active_user
+from backend.services.sessions import archive_material_sessions, lock_learning_user
+from backend.storage import MaterialDeletionStorage
 
 StateCounts = dict[ConceptState, int]
+
+
+async def delete_project(
+    db: AsyncSession, storage: MaterialDeletionStorage, user_id: uuid.UUID, project_id: uuid.UUID
+) -> None:
+    await lock_learning_user(db, user_id)
+    project = await db.scalar(
+        select(Project)
+        .where(Project.id == project_id, Project.user_id == user_id)
+        .with_for_update()
+    )
+    if project is None:
+        raise AppError(404, "not_found", "project not found")
+    materials = list(
+        await db.scalars(
+            select(Material).where(Material.project_id == project_id).with_for_update()
+        )
+    )
+    if any(m.status not in (MaterialStatus.READY, MaterialStatus.FAILED) for m in materials):
+        raise AppError(409, "project_busy", "wait for material processing to finish")
+    for material in materials:
+        await archive_material_sessions(db, user_id, material)
+    await db.delete(project)
+    await db.flush()
+    try:
+        for material in materials:
+            await asyncio.to_thread(storage.delete, material.gcs_path)
+    except Exception:
+        await db.rollback()
+        raise AppError(
+            503, "storage_unavailable", "project deletion unavailable", retryable=True
+        ) from None
+    await db.commit()
 
 
 @dataclass(frozen=True)

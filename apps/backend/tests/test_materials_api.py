@@ -233,6 +233,23 @@ async def test_upload_requires_ai_consent_once(client: httpx.AsyncClient) -> Non
 # --- 정상 업로드 → 분석 ---
 
 
+async def test_original_download_requires_owner_and_returns_uploaded_bytes(
+    client: httpx.AsyncClient, project: str
+) -> None:
+    original = make_pdf(["프로세스와 스레드"])
+    response = await upload(client, project, "원본 자료.pdf", original)
+    material_id = response.json()["id"]
+    path = f"{API_PREFIX}/materials/{material_id}/download"
+    assert (await client.get(path)).status_code == 401
+    assert (await client.get(path, headers=auth(BOB))).status_code == 404
+    downloaded = await client.get(path, headers=auth(ALICE))
+    assert downloaded.status_code == 200
+    assert downloaded.content == original
+    assert downloaded.headers["content-type"] == "application/pdf"
+    assert "filename*=UTF-8''" in downloaded.headers["content-disposition"]
+    assert downloaded.headers["cache-control"] == "private, no-store"
+
+
 async def test_pdf_is_uploaded_analyzed_and_readable(
     client: httpx.AsyncClient, project: str
 ) -> None:
@@ -271,11 +288,13 @@ async def test_newest_material_is_listed_first(client: httpx.AsyncClient, projec
 
 
 @pytest.mark.parametrize("status", [SessionStatus.COMPLETED, SessionStatus.IN_PROGRESS])
+@pytest.mark.parametrize("delete_target", ["material", "project", "archived_then_project"])
 async def test_deleting_material_preserves_answered_session_with_evidence(
     client: httpx.AsyncClient,
     project: str,
     engine: AsyncEngine,
     status: SessionStatus,
+    delete_target: str,
 ) -> None:
     key = "archive-test.pdf"
     STORAGE.files[key] = b"test source"
@@ -345,7 +364,11 @@ async def test_deleting_material_preserves_answered_session_with_evidence(
         )
         await db.commit()
 
-    source = f"{API_PREFIX}/materials/{material.id}"
+    source = (
+        f"{API_PREFIX}/projects/{project}"
+        if delete_target == "project"
+        else f"{API_PREFIX}/materials/{material.id}"
+    )
     detail = f"{API_PREFIX}/sessions/{answered.id}"
     assert (await client.delete(source, headers=auth(BOB))).status_code == 404
     STORAGE.deletion_fails = True
@@ -375,7 +398,16 @@ async def test_deleting_material_preserves_answered_session_with_evidence(
             await db.commit()
     assert (await client.delete(source, headers=auth(ALICE))).status_code == 204
     assert key not in STORAGE.files
-    assert await materials(client, project) == []
+    if delete_target == "archived_then_project":
+        assert (
+            await client.delete(f"{API_PREFIX}/projects/{project}", headers=auth(ALICE))
+        ).status_code == 204
+    if delete_target == "material":
+        assert await materials(client, project) == []
+    else:
+        assert (
+            await client.get(f"{API_PREFIX}/projects/{project}", headers=auth(ALICE))
+        ).status_code == 404
     assert (
         await client.get(f"{API_PREFIX}/sessions/{empty.id}", headers=auth(ALICE))
     ).status_code == 404
@@ -384,6 +416,7 @@ async def test_deleting_material_preserves_answered_session_with_evidence(
     assert result.status_code == 200
     archive = result.json()
     assert archive["concept_available"] is False
+    assert archive["project_available"] is (delete_target == "material")
     assert archive["status"] == ("completed" if status == SessionStatus.COMPLETED else "aborted")
     assert archive["concept_id"] == str(concept.id)
     assert archive["recommendation"] is None
@@ -395,9 +428,67 @@ async def test_deleting_material_preserves_answered_session_with_evidence(
     async with make_session_factory(engine)() as db:
         assert await db.get(Concept, concept.id) is None
         assert await db.get(Chunk, chunk.id) is None
+    records = (await client.get(f"{API_PREFIX}/records", headers=auth(ALICE))).json()
+    [record] = records["items"]
+    assert record["project_id"] == project
+    assert record["project_name"] == "운영체제"
+    assert record["project_available"] is (delete_target == "material")
+    assert (await client.get(f"{API_PREFIX}/records", headers=auth(BOB))).json()["items"] == []
+    assert (
+        await client.delete(f"{API_PREFIX}/records/{answered.id}", headers=auth(ALICE))
+    ).status_code == 204
 
 
 # --- 업로드 단계에서 막히는 예외 (사전 검증) ---
+
+
+async def test_delete_empty_project_checks_owner_and_is_removed(
+    client: httpx.AsyncClient, project: str
+) -> None:
+    url = f"{API_PREFIX}/projects/{project}"
+    assert (await client.delete(url)).status_code == 401
+    assert (await client.delete(url, headers=auth(BOB))).status_code == 404
+    assert (await client.get(url, headers=auth(ALICE))).status_code == 200
+    assert (await client.delete(url, headers=auth(ALICE))).status_code == 204
+    assert (await client.delete(url, headers=auth(ALICE))).status_code == 404
+    assert (await client.get(f"{API_PREFIX}/projects", headers=auth(ALICE))).json()["items"] == []
+
+
+@pytest.mark.parametrize(
+    "status", ["pending_upload", "queued", "extracting", "generating_concepts"]
+)
+async def test_delete_project_blocks_processing_before_deleting_files(
+    client: httpx.AsyncClient, project: str, engine: AsyncEngine, status: str
+) -> None:
+    key = "ready-project-source.pdf"
+    STORAGE.files[key] = b"source"
+    async with make_session_factory(engine)() as db:
+        db.add_all(
+            [
+                Material(
+                    project_id=uuid.UUID(project),
+                    title="ready",
+                    file_type="pdf",
+                    status="ready",
+                    gcs_path=key,
+                    size_bytes=6,
+                ),
+                Material(
+                    project_id=uuid.UUID(project),
+                    title="busy",
+                    file_type="pdf",
+                    status=status,
+                    gcs_path="busy.pdf",
+                    size_bytes=1,
+                ),
+            ]
+        )
+        await db.commit()
+    res = await client.delete(f"{API_PREFIX}/projects/{project}", headers=auth(ALICE))
+    assert res.status_code == 409
+    assert res.json()["error"]["code"] == "project_busy"
+    assert key in STORAGE.files
+    assert len(await materials(client, project)) == 2
 
 
 @pytest.mark.parametrize("name", ["보고서.doc", "강의.ppt", "표.xlsx", "움짤.gif", "확장자없음"])

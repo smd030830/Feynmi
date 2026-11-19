@@ -1,17 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, buttonStyles } from "@/components/button";
 import { Icon, type IconName } from "@/components/icon";
 import { MaterialsPanel } from "@/components/materials-panel";
+import { Modal } from "@/components/modal";
 import { RecordsPanel } from "@/components/records-panel";
 import { ProgressRing } from "@/components/progress-ring";
 import { ProjectTile } from "@/components/project-tile";
 import { StateDistributionBar } from "@/components/state-distribution-bar";
 import { StateBadge } from "@/components/learning-feedback";
-import { ApiError, apiErrorMessage, getProject, listConcepts, listRecords, listMaterials, type Concept, type Project, type RecordPage, type Material } from "@/lib/api";
+import { ApiError, apiErrorMessage, deleteProject, getProject, listConcepts, listRecords, listMaterials, type Concept, type Project, type RecordPage, type Material } from "@/lib/api";
 import { useStartLearning } from "@/lib/use-start-learning";
 
 const tabs = [
@@ -29,6 +30,7 @@ function tabCount(project: Project, tab: TabKey, recordTotal?: number) {
 }
 
 export function ProjectDetailView() {
+  const router = useRouter();
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
@@ -39,6 +41,29 @@ export function ProjectDetailView() {
   const [attempt, setAttempt] = useState(0);
   const { begin, starting, startError } = useStartLearning();
   const [refreshError, setRefreshError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const deletePending = useRef(false);
+
+  async function removeProject() {
+    if (deletePending.current) return;
+    deletePending.current = true;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteProject(id);
+      setConfirmDelete(false);
+      router.replace("/projects");
+    } catch (error) {
+      setDeleteError(error instanceof ApiError && error.code === "storage_unavailable"
+        ? "원본 파일을 삭제하지 못했어요. 프로젝트는 유지되며 잠시 후 다시 삭제할 수 있어요."
+        : apiErrorMessage(error));
+    } finally {
+      deletePending.current = false;
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -171,12 +196,24 @@ export function ProjectDetailView() {
           <div className="mt-4 max-w-[420px]">
             <StateDistributionBar counts={project.state_counts} />
           </div>
+          <Button variant="danger" className="mt-4" onClick={() => { setDeleteError(""); setConfirmDelete(true); }}>프로젝트 삭제</Button>
         </div>
         <div className="flex shrink-0 flex-col items-center gap-4 max-[600px]:w-full max-[600px]:flex-row max-[600px]:justify-between">
           <ProgressRing score={project.score} />
           <Button disabled={!nextConcept || starting} onClick={() => nextConcept && void begin(nextConcept.id)}>{starting ? "학습 준비 중…" : "학습 시작하기"}</Button>
         </div>
       </header>
+      {confirmDelete && (
+        <Modal title="프로젝트 삭제" dismissible={false} onClose={() => !deletePending.current && setConfirmDelete(false)}>
+          <p className="break-words text-body font-semibold text-text">{project.name}</p>
+          <p className="mt-3 text-body text-muted">프로젝트와 모든 학습자료·개념·원본 파일을 영구 삭제합니다. 답변이 있는 이전 설명과 결과는 학습기록에서 계속 볼 수 있어요. 삭제한 프로젝트는 복구할 수 없어요.</p>
+          {deleteError && <p role="alert" className="mt-3 text-caption text-danger">{deleteError}</p>}
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="ghost" disabled={deleting} onClick={() => setConfirmDelete(false)}>취소</Button>
+            <Button variant="danger" disabled={deleting} onClick={() => void removeProject()}>{deleting ? "삭제 중…" : "삭제하기"}</Button>
+          </div>
+        </Modal>
+      )}
       {startError && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{startError}</p>}
 
       <div>

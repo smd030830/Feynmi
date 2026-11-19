@@ -575,7 +575,7 @@ erDiagram
 | `feedbacks` | `assessment_id`(unique), `correct jsonb`, `missing_hint jsonb`, `missing jsonb`, `incorrect jsonb`, `supplement`, `summary_points jsonb`, `unverified_statements jsonb` | |
 
 - 마이그레이션 첫 단계에서 `CREATE EXTENSION IF NOT EXISTS vector`를 실행한다.
-- 모든 FK에 `ON DELETE CASCADE`를 건다. 회원 탈퇴(7.7)는 `users` 행 삭제 하나로 전체를 지운다. 자료·프로젝트 개별 삭제 API는 만들지 않는다 (PRD 5.2).
+- 회원 탈퇴(7.7)는 `users` 행 삭제 하나로 전체를 지운다. 자료·프로젝트 삭제 시 답변이 있는 세션은 스냅샷으로 보존한다 (PRD FR-1.9, FR-1.10). 보존된 세션의 프로젝트 참조는 프로젝트 삭제 시에도 기록을 유지하도록 처리한다.
 
 ---
 
@@ -669,6 +669,14 @@ erDiagram
 
 ## 자료 개별 삭제 (PRD FR-1.9)
 
-`DELETE /api/v1/materials/{id}`는 본인 소유의 `ready`·`failed` 자료만 처리한다. `owned_material(..., lock=True)`로 재분석과 직렬화하며 진행 중 자료는 `409 material_busy`, 다른 사용자 자료는 `404`다. 비공개 저장소 원본을 먼저 삭제하고, 성공한 뒤 Material 행을 삭제해 FK cascade로 청크·개념·관련 세션과 기록을 제거한다. 원본이 이미 없으면 성공으로 처리한다. 저장소 오류는 503을 반환하고 DB를 유지해 재시도할 수 있게 한다.
+`DELETE /api/v1/materials/{id}`는 본인 소유의 `ready`·`failed` 자료만 처리한다. `owned_material(..., lock=True)`로 재분석과 직렬화하며 진행 중 자료는 `409 material_busy`, 다른 사용자 자료는 `404`다. 답변이 있는 세션은 스냅샷으로 보존하고 원본·자료·청크·개념을 삭제한다. 원본이 이미 없으면 성공으로 처리한다. 저장소 오류는 503을 반환하고 DB를 유지해 재시도할 수 있게 한다.
 
 이미 발급한 Signed PUT URL은 개별 취소할 수 없어 만료 전 재사용 시 원본 경로에 고아 객체가 생길 가능성이 남는다. 앱의 자료·개념·기록은 복원되지 않는다. 이를 엄격히 차단하려면 만료 후 정리 또는 업로드 경로 변경을 별도로 설계해야 한다.
+
+## 프로젝트 삭제 (PRD FR-1.10)
+
+DELETE /api/v1/projects/{id}는 사용자 잠금과 프로젝트·자료 행 잠금 아래 소유권과 처리 상태를 검증한다. 모든 자료의 답변 있는 세션을 스냅샷으로 보존하고 원본 삭제 후 프로젝트를 삭제한다. 저장소 오류는 503으로 DB 변경을 롤백한다. 여러 원본 중 일부가 이미 삭제되어도 재시도 가능하도록 없는 원본 삭제는 성공으로 처리한다. 보존된 세션은 원래 프로젝트 UUID·이름을 유지하며 전체 학습기록에서 조회한다. 프로젝트 존재 여부를 응답에 포함해 프런트엔드가 삭제된 프로젝트 링크를 제공하지 않게 한다.
+
+## 학습자료 원본 다운로드 (PRD FR-1.3)
+
+GET /api/v1/materials/{id}/download는 인증·이메일 인증·프로필·자료 소유권을 확인한 뒤 기존 저장소 읽기 경로로 원본을 반환한다. Content-Disposition attachment와 UTF-8 파일명, 자료 형식의 Content-Type을 사용하며 Cache-Control은 private, no-store다. 업로드 미완료는 409, 원본 누락은 404, 저장소 오류는 503으로 안내한다. 브라우저는 인증 헤더를 붙여 파일을 받은 뒤 원래 자료 이름으로 저장한다. 비공개 버킷 주소나 공개 다운로드 URL은 노출하지 않는다.

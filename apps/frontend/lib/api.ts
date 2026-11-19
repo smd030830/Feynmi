@@ -65,6 +65,8 @@ const MESSAGES: Record<string, string> = {
   upload_missing: "파일 업로드가 끝나지 않았어요. 다시 올려주세요.",
   storage_unavailable: "자료 저장소가 설정되지 않았어요. 관리자에게 문의해주세요.",
   material_busy: "업로드나 분석이 진행 중인 자료는 완료된 뒤 삭제할 수 있어요.",
+  project_busy: "자료 업로드·분석이나 답변 평가가 끝난 뒤 프로젝트를 삭제해주세요.",
+  assessment_in_progress: "답변을 평가하고 있어요. 평가가 끝난 뒤 다시 삭제해주세요.",
 };
 
 // 분석 실패 사유 (materials.failure_code, PRD FR-1.4, FR-1.7)
@@ -95,7 +97,7 @@ export function apiErrorMessage(error: unknown) {
   return MESSAGES[code] ?? "요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.";
 }
 
-async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = false) {
+async function apiResponse(path: string, init: RequestInit = {}, refreshToken = false) {
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new ApiError(401, "unauthenticated", "not signed in");
 
@@ -127,7 +129,21 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = 
       body?.error?.message ?? response.statusText,
     );
   }
+  return response;
+}
+
+async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = false) {
+  const response = await apiResponse(path, init, refreshToken);
   return (response.status === 204 ? undefined : await response.json()) as T;
+}
+
+export async function downloadMaterial(id: string) {
+  const response = await apiResponse(`/materials/${encodeURIComponent(id)}/download`, { cache: "no-store" });
+  try {
+    return await response.blob();
+  } catch {
+    throw new ApiError(0, "network_error", "download interrupted");
+  }
 }
 
 // refreshToken: 이메일 인증 직후처럼 토큰의 클레임을 갱신해야 할 때 true
@@ -161,6 +177,10 @@ export function getProject(id: string) {
   return apiFetch<Project>(`/projects/${encodeURIComponent(id)}`);
 }
 
+export function deleteProject(id: string) {
+  return apiFetch<void>(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export type ConceptState = "not_studied" | "partial" | "misconception" | "understood";
 export type Concept = {
   id: string; title: string; description: string; state: ConceptState; score: number | null;
@@ -189,6 +209,7 @@ export type Assessment = {
 export type LearningSession = {
   id: string; concept_id: string; concept_title: string; project_id: string; project_name: string;
   concept_available?: boolean;
+  project_available?: boolean;
   status: "in_progress" | "completed" | "aborted"; end_reason: string | null;
   followups_used: number; started_at: string; ended_at: string | null;
   messages: LearningMessage[]; assessments: Assessment[]; score_change: number | null;
@@ -215,6 +236,7 @@ export type LearningRecord = {
   concept_title: string;
   project_id: string;
   project_name: string;
+  project_available?: boolean;
   started_at: string;
   ended_at: string | null;
   score: number | null;

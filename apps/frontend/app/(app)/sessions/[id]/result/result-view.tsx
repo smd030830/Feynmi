@@ -40,7 +40,7 @@ export function ResultView() {
     { title: "잘못 이해한 부분", items: feedback?.incorrect ?? [], color: "text-danger", bg: "bg-danger-soft" },
   ].filter((part) => part.items.length > 0);
   return <div className="space-y-7">
-    <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>
+    {session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}
     <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">LEARNING COMPLETE</p><h1 className="mt-2 text-title-1 font-bold">학습 결과</h1><p className="mt-1 text-body-lg text-muted">설명 속에 드러난 이해를 분석했어요.</p></div><p className="text-caption text-subtle">{new Date(session.started_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · {duration}분 학습</p></header>
     {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되었어요. 당시 결과와 대화는 아래에서 볼 수 있어요.</p>}
     <section className="grid grid-cols-[1fr_auto_1fr] items-center gap-9 rounded-hero border border-primary-line bg-surface p-8">
@@ -55,7 +55,7 @@ export function ResultView() {
     {!!feedback?.unverified_statements?.length && <section className="rounded-card border border-line bg-primary-soft p-6"><h2 className="text-heading font-bold text-primary-strong">자료에서 확인되지 않음</h2>{feedback.unverified_statements.map((item, i) => <p key={i} className="mt-2 text-body text-muted">“{item.learner_quote}” · {item.note}</p>)}</section>}
     {session.recommendation && <section className="flex items-center justify-between gap-6 rounded-card border border-primary-line bg-primary-soft p-6"><div><p className="text-caption font-bold text-primary-strong">다음 학습 추천 · {session.recommendation.reason}</p><h2 className="mt-2 text-title-3 font-bold">{session.recommendation.concept_title}</h2><p className="mt-1 text-caption text-subtle">{session.recommendation.project_name} · {session.recommendation.score === null ? "미학습" : `${session.recommendation.score}%`}</p><div className="mt-2"><StateBadge state={session.recommendation.state} /></div></div><Button disabled={starting} onClick={next}>다음 학습 시작하기</Button></section>}
     {startError && <p role="alert" className="text-body text-danger">{startError}</p>}
-    <div className="flex items-center justify-between"><Link href={`/projects/${session.project_id}`} className={buttonStyles("ghost")}>프로젝트로 돌아가기</Link><span role="status" className="rounded-control bg-success-soft px-4 py-3 text-body font-bold text-success">학습 결과 저장됨 ✓</span></div>
+    <div className="flex items-center justify-between"><Link href={session.project_available === false ? "/records" : `/projects/${session.project_id}`} className={buttonStyles("ghost")}>{session.project_available === false ? "학습기록으로 돌아가기" : "프로젝트로 돌아가기"}</Link><span role="status" className="rounded-control bg-success-soft px-4 py-3 text-body font-bold text-success">학습 결과 저장됨 ✓</span></div>
     <details className="rounded-card border border-line bg-surface p-6"><summary className="cursor-pointer text-subheading font-bold">대화 다시 보기</summary><div className="mt-6"><Conversation messages={session.messages} assessments={session.assessments} /></div></details>
   </div>;
 }
