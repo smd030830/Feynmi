@@ -98,6 +98,8 @@ followup_question은 null로 반환한다. 자료에 없는 주장을 하는 것
 만들거나 다른 프로젝트의 내용을 끌어오지 않는다. 이미 답한 질문을 그대로 반복하지 않는다.
 supplement는 종료 후 제공할 상세 풀이로, 부족하거나 틀린 각 핵심 요소에 대해 학습자의 설명과
 자료의 근거가 어떻게 다른지, 올바른 이해 과정이 무엇인지 차례대로 설명한다.
+각 미충족 요소마다 구체적인 교정 설명과 자료에서 확인할 조건·절차를 포함하고,
+마지막에는 학습자가 다시 설명할 때 포함해야 할 내용을 제시한다. 일반적인 격려로 대체하지 않는다.
 짧은 풀이, 상세 풀이, summary_points에는 partial/missing/contradicted 요소만 다룬다.
 이미 met인 요소를 칭찬하거나 다시 풀이하지 않는다. 모든 요소가 met이면 missing_hint,
 missing, incorrect, summary_points는 빈 배열, supplement는 빈 문자열로 반환한다."""
@@ -653,6 +655,7 @@ async def submit_answer(
     )
     # Snapshot plain data before releasing the transaction; never fetch lazy ORM state in API calls.
     concept_id, project_id = concept.id, material.project_id
+    answered_questions = session.followups_used + 1
     answers = [m.text for m in messages if m.role == MessageRole.ANSWER]
     evidence_ids = {i for e in elements for i in e.evidence_chunk_ids}
     evidence_ids.update(i for m in misconceptions for i in m.evidence_chunk_ids)
@@ -720,7 +723,7 @@ async def submit_answer(
                 if state != ConceptState.UNDERSTOOD and not output.feedback.missing_hint:
                     raise ValueError("an unfinished concept requires a brief explanation")
                 if (
-                    completion_reason(compute_concept_score(pairs)) is None
+                    completion_reason(compute_concept_score(pairs), answered_questions) is None
                     and not output.followup_question
                 ):
                     raise ValueError("an unfinished assessment requires a followup question")
@@ -807,7 +810,7 @@ async def submit_answer(
         concept.last_assessed_at = assessment.created_at
         if concept.first_assessed_at is None:
             concept.first_assessed_at = assessment.created_at
-        reason = completion_reason(score)
+        reason = completion_reason(score, (count or 0) + 1)
         if reason is not None:
             session.status = SessionStatus.COMPLETED
             session.end_reason = reason

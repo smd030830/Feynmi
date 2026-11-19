@@ -348,7 +348,7 @@ async def test_answer_confidence_records_metadata_without_exposing_it_to_evaluat
     assert "confidence" not in json.dumps(setup.provider.inputs)
 
 
-async def test_session_continues_past_three_followups_until_full_score(setup: Setup) -> None:
+async def test_session_completes_on_fifth_question(setup: Setup) -> None:
     listing = await setup.client.get(f"{URL}/projects/{setup.project_id}/concepts")
     assert len(listing.json()["items"]) == 2
     sid = await start(setup)
@@ -358,7 +358,7 @@ async def test_session_continues_past_three_followups_until_full_score(setup: Se
     assert "프로세스" in view["messages"][0]["text"]
     assert view["hint_source"] == {"material_title": "강의.pdf", "page_start": 1, "page_end": 2}
     assert not setup.provider.inputs
-    for attempt in range(5):
+    for attempt in range(4):
         response = await answer(setup, sid, f"설명 {attempt}")
         assert response.status_code == 200, response.text
         body = response.json()
@@ -372,31 +372,30 @@ async def test_session_continues_past_three_followups_until_full_score(setup: Se
         assert "result-only" not in response.text
         assert "missing" not in body["assessments"][-1]["feedback"]
     assert (await setup.client.get(f"{URL}/sessions/{sid}/result")).status_code == 409
-    setup.provider.verdict = Verdict.MET
-    response = await answer(setup, sid, "핵심 요소를 모두 설명")
+    response = await answer(setup, sid, "다섯 번째 설명")
     assert response.status_code == 200, response.text
-    assert response.json()["end_reason"] == "understood"
+    assert response.json()["end_reason"] == "max_followups"
     inputs = setup.provider.inputs
     assert inputs[-1]["question_depth"] == "deep"
-    assert len([m for m in inputs[-1]["messages"] if m["role"] == "answer"]) == 6
-    assert len([m for m in inputs[-1]["messages"] if m["role"] == "question"]) == 6
+    assert len([m for m in inputs[-1]["messages"] if m["role"] == "answer"]) == 5
+    assert len([m for m in inputs[-1]["messages"] if m["role"] == "question"]) == 5
     result = await setup.client.get(f"{URL}/sessions/{sid}/result")
     assert result.status_code == 200
     body = result.json()
-    assert body["score_change"] == 50
-    assert body["remaining_core_count"] == 0
+    assert body["score_change"] == 0
+    assert body["remaining_core_count"] == 1
     assert "hint_source" not in body
     assert body["assessments"][0]["elements"][0]["evidence"][0]["text"] == (
         "프로세스는 실행 중인 프로그램이다."
     )
     assert body["recommendation"]["concept_id"] == str(setup.next_concept_id)
     assert body["assessments"][0]["feedback"]["supplement"] == "result-only supplement"
-    assert body["assessments"][-1]["feedback"]["supplement"] == ""
+    assert body["assessments"][-1]["feedback"]["supplement"] == "result-only supplement"
     assert (await answer(setup, sid)).status_code == 409
     concept = await setup.db.get(Concept, setup.concept_id)
     assert concept is not None
     await setup.db.refresh(concept)
-    assert concept.score == 100
+    assert concept.score == 50
 
 
 async def test_understood_ends_immediately_and_relearning_uses_new_context(setup: Setup) -> None:

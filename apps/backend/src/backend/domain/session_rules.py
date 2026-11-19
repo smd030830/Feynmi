@@ -1,7 +1,13 @@
-"""PRD 6.2와 FR-2.4: 이해도 100%에서 학습이 완료된다."""
+"""PRD 6.2: 최대 다섯 질문 또는 이해도 100%에서 완료."""
 
 from backend.domain.enums import EndReason
 
+MAX_QUESTIONS = 5
 
-def completion_reason(score: int) -> EndReason | None:
-    return EndReason.UNDERSTOOD if score == 100 else None
+
+def completion_reason(score: int, answered_questions: int = 1) -> EndReason | None:
+    if score == 100:
+        return EndReason.UNDERSTOOD
+    if answered_questions >= MAX_QUESTIONS:
+        return EndReason.MAX_FOLLOWUPS
+    return None

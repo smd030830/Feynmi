@@ -35,23 +35,34 @@ export function ResultView() {
   const feedback = final?.feedback;
   const needsWork = final?.state === "partial" || final?.state === "misconception"
     || final?.elements.some((element) => element.verdict !== "met");
-  const improvementParts = [
-    { title: "보완이 필요한 부분", items: feedback?.missing ?? [], color: "text-warning", bg: "bg-warning-soft" },
-    { title: "잘못 이해한 부분", items: feedback?.incorrect ?? [], color: "text-danger", bg: "bg-danger-soft" },
-  ].filter((part) => part.items.length > 0);
+  const gaps = final?.elements.filter((element) => element.verdict !== "met") ?? [];
   return <div className="space-y-7">
     {session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}
-    <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">LEARNING COMPLETE</p><h1 className="mt-2 text-title-1 font-bold">학습 결과</h1><p className="mt-1 text-body-lg text-muted">설명 속에 드러난 이해를 분석했어요.</p></div><p className="text-caption text-subtle">{new Date(session.started_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · {duration}분 학습</p></header>
+    <header className="flex items-end justify-between"><div><p className="text-eyebrow font-bold text-primary-strong">LEARNING COMPLETE</p><h1 className="mt-2 text-title-1 font-bold">학습 결과</h1><p className="mt-1 text-body-lg text-muted">{session.end_reason === "max_followups" ? "질문 횟수에 도달했어요. 남은 부분을 확인하고 다시 학습해보세요." : "이해도 100%에 도달해 학습을 마쳤어요."}</p></div><p className="text-caption text-subtle">{new Date(session.started_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · {duration}분 학습</p></header>
     {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되었어요. 당시 결과와 대화는 아래에서 볼 수 있어요.</p>}
     <section className="grid grid-cols-[1fr_auto_1fr] items-center gap-9 rounded-hero border border-primary-line bg-surface p-8">
       <div><p className="text-caption font-bold text-subtle">학습 개념</p><h2 className="mt-2 text-title-2 font-bold">{session.concept_title}</h2>{needsWork && !!feedback?.summary_points?.length && <div className="mt-3"><FeedbackList items={feedback.summary_points} /></div>}<p className="mt-5 text-body font-bold text-primary-strong">{difference > 0 ? `+${difference}%p 상승` : difference < 0 ? `${Math.abs(difference)}%p 하락` : "변화 없음"}</p><p className="text-caption text-subtle">{first?.score ?? 0}%에서 시작했어요</p></div>
       <ProgressRing score={final?.score ?? null} />
       <div><p className="mb-3 text-caption font-bold text-subtle">현재 단계</p><StateBadge state={final?.state ?? "not_studied"} /><p className="mt-4 text-body font-bold text-muted">{session.remaining_core_count === 0 ? "모든 핵심 요소를 충족했어요" : `이해까지 남은 핵심 요소 ${session.remaining_core_count ?? 0}개`}</p><progress aria-label="충족한 핵심 요소" className="mt-3 h-2 w-full accent-primary" max={coreCount || 1} value={coreCount - (session.remaining_core_count ?? 0)} /></div>
     </section>
+    {needsWork ? <section aria-label="보완할 내용" className="space-y-4">
+      <h2 className="text-heading font-bold">다음 설명에서 보완할 내용</h2>
+      {gaps.map((element) => <article key={element.element_id} className="rounded-card border border-line bg-surface p-6">
+        <p className="text-caption font-bold text-warning">{element.verdict === "contradicted" ? "잘못 이해한 부분" : element.verdict === "missing" ? "설명하지 못한 부분" : "설명이 부족한 부분"}</p>
+        <h3 className="mt-2 text-subheading font-bold">{element.text}</h3>
+        {element.learner_quote && <blockquote className="mt-3 border-l-2 border-primary-line pl-3 text-body text-muted">내 설명 · “{element.learner_quote}”</blockquote>}
+        <p className="mt-3 whitespace-pre-wrap text-body text-muted">{element.note?.trim() || "이 항목의 조건과 적용 과정을 자료와 연결해 설명하는 내용이 필요해요."}</p>
+        {element.evidence.map((source) => <div key={source.id} className="mt-4 rounded-control bg-canvas p-4">
+          <p className="text-caption font-bold">{source.material_title} · {source.page_start}{source.page_end !== source.page_start ? `–${source.page_end}` : ""}쪽/슬라이드</p>
+          {source.text && <blockquote className="mt-2 whitespace-pre-wrap text-body text-muted">{source.text}</blockquote>}
+        </div>)}
+        <p className="mt-4 text-body font-semibold text-primary-strong">다시 설명해보기 · {element.text}의 조건과 이유를 연결해 자기 말로 설명해보세요.</p>
+      </article>)}
+      {gaps.length === 0 && <FeedbackList items={[...(feedback?.missing ?? []), ...(feedback?.incorrect ?? []), ...(feedback?.missing_hint ?? [])]} />}
+    </section> : <p className="text-body text-subtle">추가로 보완할 부분이 없어요.</p>}
+    {needsWork && !!feedback?.supplement?.trim() && <section className="rounded-card border border-line bg-surface p-6"><h2 className="text-heading font-bold">상세 풀이</h2><p className="mt-4 whitespace-pre-wrap text-body-lg text-muted">{feedback.supplement}</p></section>}
     <MisconceptionReview session={session} />
     <AssessmentEvidence assessments={session.assessments} />
-    {needsWork ? (improvementParts.length > 0 && <section className="grid gap-4 md:grid-cols-2" aria-label="설명 분석">{improvementParts.map((part) => <div key={part.title} className={`rounded-card border border-line p-5 ${part.bg}`}><h2 className={`mb-4 text-subheading font-bold ${part.color}`}>{part.title}</h2><FeedbackList items={part.items} /></div>)}</section>) : <p className="text-body text-subtle">추가로 보완할 부분이 없어요.</p>}
-    {needsWork && !!feedback?.supplement?.trim() && <section className="rounded-card border border-line bg-surface p-6"><h2 className="text-heading font-bold">상세 풀이</h2><p className="mt-4 whitespace-pre-wrap text-body-lg text-muted">{feedback.supplement}</p></section>}
     {!!feedback?.unverified_statements?.length && <section className="rounded-card border border-line bg-primary-soft p-6"><h2 className="text-heading font-bold text-primary-strong">자료에서 확인되지 않음</h2>{feedback.unverified_statements.map((item, i) => <p key={i} className="mt-2 text-body text-muted">“{item.learner_quote}” · {item.note}</p>)}</section>}
     {session.recommendation && <section className="flex items-center justify-between gap-6 rounded-card border border-primary-line bg-primary-soft p-6"><div><p className="text-caption font-bold text-primary-strong">다음 학습 추천 · {session.recommendation.reason}</p><h2 className="mt-2 text-title-3 font-bold">{session.recommendation.concept_title}</h2><p className="mt-1 text-caption text-subtle">{session.recommendation.project_name} · {session.recommendation.score === null ? "미학습" : `${session.recommendation.score}%`}</p><div className="mt-2"><StateBadge state={session.recommendation.state} /></div></div><Button disabled={starting} onClick={next}>다음 학습 시작하기</Button></section>}
     {startError && <p role="alert" className="text-body text-danger">{startError}</p>}
