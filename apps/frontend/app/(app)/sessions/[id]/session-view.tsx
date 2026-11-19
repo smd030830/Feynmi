@@ -150,9 +150,8 @@ export function SessionView() {
       <section className="min-w-0 space-y-6"><div className="flex justify-between"><h2 className="text-heading font-bold">{ended ? "중단된 학습의 대화" : "설명하며 이해하기"}</h2>{pending && <span role="status" className="text-caption text-primary-strong">대화 분석 중…</span>}</div>
         <Conversation messages={session.messages} assessments={session.assessments} />
         {!ended ? <form onSubmit={send} className="min-w-0 rounded-card border border-primary-line bg-surface p-4 shadow-brand sm:p-5">
-          <p className="text-caption font-bold text-primary-strong">현재 질문</p><p className="mt-1 text-body text-muted">{currentQuestion?.text}</p>
           {currentQuestion && hintSource && (
-            <details key={currentQuestion.id} className="mt-3 rounded-control border border-line bg-canvas p-3">
+            <details key={currentQuestion.id} className="rounded-control border border-line bg-canvas p-3">
               <summary className="cursor-pointer text-caption font-bold text-primary-strong">힌트 보기</summary>
               <p className="mt-2 break-words text-caption text-muted">
                 「{hintSource.material_title}」
@@ -208,12 +207,12 @@ export function SessionView() {
               )}
             </div>
           </fieldset>
-          <div className="mt-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-micro text-subtle">학습자료를 보지 않고 설명해보세요<br />{answer.length}자 · Ctrl+Enter</p>
+          <div className="mt-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="soft"
                 aria-describedby="speech-input-help"
+                title="음성은 브라우저의 음성 인식 서비스에서 처리될 수 있어요."
                 disabled={pending || speechState === "stopping"}
                 onClick={speechState === "listening" ? stopSpeech : startSpeech}
               >
@@ -222,12 +221,10 @@ export function SessionView() {
               <Button type="submit" disabled={pending || speechState !== "idle" || !answer.trim()}>{pending ? "분석 중…" : "설명 보내기"}</Button>
             </div>
           </div>
-          <p id="speech-input-help" className="mt-3 text-micro text-subtle">음성은 브라우저의 음성 인식 서비스에서 처리될 수 있어요.</p>
+          <p id="speech-input-help" className="sr-only">음성은 브라우저의 음성 인식 서비스에서 처리될 수 있어요.</p>
           <p role="status" className={speechMessage || speechState !== "idle" ? "mt-2 text-caption text-muted" : "sr-only"}>
             {speechMessage || (speechState === "listening" ? "듣고 있어요. 설명을 마치면 음성 입력을 중지해주세요." : speechState === "stopping" ? "마지막 음성을 텍스트로 바꾸고 있어요." : "")}
-          </p>
-          <p className="mt-3 text-micro text-subtle">정답을 맞히려 하지 않아도 괜찮아요. 지금 이해한 만큼 자신의 언어로 설명해주세요.</p>
-        </form> : session.concept_available !== false && <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이 개념 다시 학습하기</Button></div>}
+          </p>        </form> : session.concept_available !== false && <div className="flex justify-end"><Button disabled={pending || starting} onClick={restart}>이 개념 다시 학습하기</Button></div>}
       </section>
       {!ended && <aside className="min-w-0 space-y-5 rounded-card border border-line bg-surface p-4 sm:p-5 lg:sticky lg:top-24"><div><p className="text-eyebrow font-bold text-primary-strong">실시간 분석</p><h2 className="mt-2 text-subheading font-bold">현재 이해 상태</h2><div className="mt-3"><StateBadge state={latest?.state ?? "not_studied"} /></div></div>
         <ul className="space-y-4">{latest?.elements.map((element) => <li key={element.element_id} className="text-caption"><p className="font-semibold text-muted">{element.text}</p><p className="mt-1 text-subtle">{element.importance === "core" ? "핵심" : "보조"} · {pending ? "이해 확인 중" : verdictLabels[element.verdict]}</p>{element.learner_quote && <blockquote className="mt-2 border-l-2 border-primary-line pl-2 text-subtle">“{element.learner_quote}”</blockquote>}</li>) ?? <li className="text-caption text-subtle">첫 설명을 보내면 이해 상태를 확인할 수 있어요.</li>}</ul>

@@ -46,7 +46,7 @@ export function Conversation({ messages, assessments }: { messages: LearningMess
       return Date.parse(item.created_at) >= Date.parse(message.created_at) && (!next || Date.parse(item.created_at) < Date.parse(next.created_at));
     }) : undefined;
     const answerIndex = messages.slice(0, index + 1).filter((item) => item.role === "answer").length;
-    return <div key={message.id} className={message.role === "answer" ? "ml-2 sm:ml-8" : "mr-2 sm:mr-8"}>
+    return <div key={message.id} className={message.role === "answer" ? "ml-2 sm:ml-8" : ""}>
       {message.role === "question" ? (
         <div className="min-w-0 overflow-hidden rounded-card border border-primary-line bg-primary-soft p-4 shadow-sm sm:p-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

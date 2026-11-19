@@ -258,9 +258,7 @@ export function ProjectDetailView() {
                   <button key={concept.id} type="button" disabled={starting} onClick={() => void begin(concept.id)} className="flex w-full flex-wrap items-center gap-4 rounded-card border border-line bg-surface p-5 text-left hover:border-primary-line disabled:opacity-60 max-[600px]:gap-3 max-[600px]:p-4">
                     <span className="min-w-0 flex-1 max-[600px]:basis-full">
                       <span className="block text-caption text-subtle">{concept.material_title}</span>
-                      <span role="heading" aria-level={3} className="mt-1 block text-subheading font-bold">{concept.title}</span>
-                      <span className="mt-1 block text-caption text-muted">{concept.description}</span>
-                    </span>
+                      <span role="heading" aria-level={3} className="mt-1 block text-subheading font-bold">{concept.title}</span>                    </span>
                     <StateBadge state={concept.state} />
                     <span className="min-w-12 text-right text-body font-bold text-muted">{concept.score === null ? "-" : `${concept.score}%`}</span>
                     <span className={buttonStyles("soft")}>{concept.state === "not_studied" ? "학습하기" : "다시 학습"}</span>
