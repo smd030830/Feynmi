@@ -142,7 +142,7 @@ export function SessionView() {
 
   return <div className="space-y-7">
     <div className="flex items-center justify-between">{session.project_available === false ? <p className="text-caption font-semibold text-subtle">{session.project_name} (삭제된 프로젝트) › {session.concept_title}</p> : <Link href={`/projects/${session.project_id}`} className="text-caption font-semibold text-subtle">{session.project_name} › {session.concept_title}</Link>}{!ended && <Button variant="soft" disabled={pending} onClick={() => { stopSpeech(); setConfirmExit(true); }}>학습 종료</Button>}</div>
-    <header className="flex items-end justify-between gap-4"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="shrink-0 text-caption text-subtle">{ended ? "중단된 학습" : "최대 5개 질문 · 이해도 100%면 조기 완료"}</span></header>
+    <header className="flex items-end justify-between gap-4"><div><p className="text-eyebrow font-bold text-primary-strong">FEYNMAN 학습</p><h1 className="mt-2 text-title-1 font-bold">{session.concept_title}</h1></div><span className="shrink-0 text-caption text-subtle">{ended ? "중단된 학습" : "최대 5문항 · 이해도 100% 달성 시 조기 종료"}</span></header>
     {session.concept_available === false && <p className="rounded-control bg-canvas p-4 text-body text-muted">학습자료가 삭제되어 이 개념을 다시 학습할 수 없어요. 당시 설명과 피드백은 아래에서 볼 수 있어요.</p>}
     {!ended && session.followups_used > 0 && <p aria-live="polite" className="text-caption font-bold text-primary-strong">추가 질문 {session.followups_used}</p>}
     {(error || startError) && <p role="alert" className="rounded-control bg-danger-soft p-4 text-body text-danger">{error || startError}</p>}
