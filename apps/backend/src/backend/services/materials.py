@@ -99,25 +99,6 @@ async def delete_material(
     await db.commit()
 
 
-async def download_material(
-    db: AsyncSession, storage: MaterialStorage, user_id: uuid.UUID, material_id: uuid.UUID
-) -> tuple[Material, bytes]:
-    material = await owned_material(db, user_id, material_id)
-    if material.status == MaterialStatus.PENDING_UPLOAD:
-        raise AppError(409, "material_busy", "wait for the upload to finish")
-    try:
-        content = await asyncio.to_thread(storage.load, material.gcs_path)
-    except FileNotFoundError:
-        raise AppError(404, "original_missing", "original file not found") from None
-    except AppError:
-        raise
-    except Exception:
-        raise AppError(
-            503, "storage_unavailable", "material download unavailable", retryable=True
-        ) from None
-    return material, content
-
-
 def _file_type(filename: str) -> tuple[FileType, str]:
     ext = PurePath(filename).suffix.lower().lstrip(".")
     if ext not in EXTENSIONS:

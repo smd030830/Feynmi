@@ -10,7 +10,6 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from pydantic import BaseModel, Field
@@ -21,7 +20,6 @@ from backend.db.models import Material
 from backend.domain.enums import FailureCode, FileType, MaterialStatus
 from backend.queue import inline
 from backend.services import materials
-from backend.storage import CONTENT_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -170,30 +168,3 @@ async def delete_material(
 ) -> Response:
     await materials.delete_material(db, request.app.state.storage, current.user.id, material_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get("/materials/{material_id}/download", response_class=Response)
-async def download_material(
-    material_id: uuid.UUID, request: Request, current: ProfileUser, db: DbSession
-) -> Response:
-    material, content = await materials.download_material(
-        db, request.app.state.storage, current.user.id, material_id
-    )
-    # Encode the original Korean filename without allowing header or path injection.
-    filename = material.title.replace("\\", "/").rsplit("/", 1)[-1]
-    filename = "".join(
-        character for character in filename if ord(character) >= 32 and ord(character) != 127
-    )
-    filename = filename.strip() or f"material.{material.file_type}"
-    return Response(
-        content=content,
-        media_type=CONTENT_TYPES[FileType(material.file_type)],
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="material.{material.file_type}"; '
-                f"filename*=UTF-8''{quote(filename, safe='')}"
-            ),
-            "Cache-Control": "private, no-store",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )

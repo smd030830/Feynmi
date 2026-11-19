@@ -7,9 +7,7 @@ import { Icon } from "@/components/icon";
 import { Modal } from "@/components/modal";
 import {
   apiErrorMessage,
-  ApiError,
   deleteMaterial,
-  downloadMaterial,
   failureMessage,
   giveAiConsent,
   listMaterials,
@@ -315,41 +313,6 @@ function MaterialRow({
   retrying: boolean;
   onDelete: (m: Material) => void;
 }) {
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState("");
-  const downloadPending = useRef(false);
-
-  async function download() {
-    if (downloadPending.current || m.status === "pending_upload") return;
-    downloadPending.current = true;
-    setDownloading(true);
-    setDownloadError("");
-    try {
-      const blob = await downloadMaterial(m.id);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = m.title;
-      try {
-        document.body.append(link);
-        link.click();
-      } finally {
-        link.remove();
-        // 파일 저장을 시작한 브라우저가 URL을 읽을 시간을 준다.
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      }
-    } catch (error) {
-      setDownloadError(error instanceof ApiError && error.code === "storage_unavailable"
-        ? "원본 파일을 내려받지 못했어요. 잠시 후 다시 시도해주세요."
-        : error instanceof ApiError && error.code === "material_busy"
-          ? "업로드가 끝난 뒤 다시 다운로드해주세요."
-        : apiErrorMessage(error));
-    } finally {
-      downloadPending.current = false;
-      setDownloading(false);
-    }
-  }
-
   const working = IN_PROGRESS.includes(m.status);
   const badge =
     m.status === "ready"
@@ -376,7 +339,6 @@ function MaterialRow({
             {failureMessage(m.failure_code, m.file_type)}
           </p>
         )}
-        {downloadError && <p role="alert" className="mt-1 text-caption text-danger">{downloadError}</p>}
       </div>
       <span
         // design-system 8.2 Badge: caption 600, 여백 4px 8px, 모서리 99px, 의미색 글자 + 옅은 배경
@@ -391,7 +353,6 @@ function MaterialRow({
           {retrying ? "다시 분석 중…" : "재시도"}
         </Button>
       )}
-      <Button variant="ghost" disabled={downloading || m.status === "pending_upload"} aria-label={`${m.title} 다운로드`} title={m.status === "pending_upload" ? "업로드가 끝난 뒤 다운로드할 수 있어요" : undefined} onClick={() => void download()}>{downloading ? "다운로드 중…" : "다운로드"}</Button>
       <Button variant="ghost" disabled={working || retrying} title={working ? "업로드·분석 완료 후 삭제할 수 있어요" : undefined} aria-label={`${m.title} 삭제`} onClick={() => onDelete(m)}>삭제</Button>
     </li>
   );

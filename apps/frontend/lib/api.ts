@@ -97,7 +97,7 @@ export function apiErrorMessage(error: unknown) {
   return MESSAGES[code] ?? "요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.";
 }
 
-async function apiResponse(path: string, init: RequestInit = {}, refreshToken = false) {
+async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = false) {
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new ApiError(401, "unauthenticated", "not signed in");
 
@@ -129,21 +129,7 @@ async function apiResponse(path: string, init: RequestInit = {}, refreshToken = 
       body?.error?.message ?? response.statusText,
     );
   }
-  return response;
-}
-
-async function apiFetch<T>(path: string, init: RequestInit = {}, refreshToken = false) {
-  const response = await apiResponse(path, init, refreshToken);
   return (response.status === 204 ? undefined : await response.json()) as T;
-}
-
-export async function downloadMaterial(id: string) {
-  const response = await apiResponse(`/materials/${encodeURIComponent(id)}/download`, { cache: "no-store" });
-  try {
-    return await response.blob();
-  } catch {
-    throw new ApiError(0, "network_error", "download interrupted");
-  }
 }
 
 // refreshToken: 이메일 인증 직후처럼 토큰의 클레임을 갱신해야 할 때 true

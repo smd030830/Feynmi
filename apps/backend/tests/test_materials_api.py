@@ -233,23 +233,6 @@ async def test_upload_requires_ai_consent_once(client: httpx.AsyncClient) -> Non
 # --- 정상 업로드 → 분석 ---
 
 
-async def test_original_download_requires_owner_and_returns_uploaded_bytes(
-    client: httpx.AsyncClient, project: str
-) -> None:
-    original = make_pdf(["프로세스와 스레드"])
-    response = await upload(client, project, "원본 자료.pdf", original)
-    material_id = response.json()["id"]
-    path = f"{API_PREFIX}/materials/{material_id}/download"
-    assert (await client.get(path)).status_code == 401
-    assert (await client.get(path, headers=auth(BOB))).status_code == 404
-    downloaded = await client.get(path, headers=auth(ALICE))
-    assert downloaded.status_code == 200
-    assert downloaded.content == original
-    assert downloaded.headers["content-type"] == "application/pdf"
-    assert "filename*=UTF-8''" in downloaded.headers["content-disposition"]
-    assert downloaded.headers["cache-control"] == "private, no-store"
-
-
 async def test_pdf_is_uploaded_analyzed_and_readable(
     client: httpx.AsyncClient, project: str
 ) -> None:

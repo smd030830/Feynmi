@@ -47,9 +47,6 @@ export type Paths = {
   "/api/v1/materials/{material_id}": {
     "delete": { parameters: { path: { "material_id": string; }; }; requestBody?: never; responses: { "204": void; "422": Schemas["HTTPValidationError"]; }; };
   };
-  "/api/v1/materials/{material_id}/download": {
-    "get": { parameters: { path: { "material_id": string; }; }; requestBody?: never; responses: { "200": void; "422": Schemas["HTTPValidationError"]; }; };
-  };
   "/api/v1/materials/{material_id}/retry": {
     "post": { parameters: { path: { "material_id": string; }; }; requestBody?: never; responses: { "202": Schemas["MaterialResponse"]; "422": Schemas["HTTPValidationError"]; }; };
   };
