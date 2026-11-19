@@ -50,6 +50,7 @@ export function NewProjectModal({
     setError("");
     try {
       const project = await createProject(name.trim(), description.trim());
+      onClose();
       router.push(`/projects/${project.id}?tab=materials`);
     } catch (e) {
       setError(apiErrorMessage(e));
